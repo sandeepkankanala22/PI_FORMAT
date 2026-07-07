@@ -57,6 +57,26 @@
             upload: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
         };
 
+        // Copilot onboarding (mode-choice card) is State 1; dismissed once any
+        // forecast workflow begins (PI upload, chat, step-by-step, example, etc.).
+        let _copilotOnboardingDismissed = false;
+
+        function dismissCopilotOnboarding() {
+            if (_copilotOnboardingDismissed) return;
+            _copilotOnboardingDismissed = true;
+            document.querySelectorAll('.mode-choice-card').forEach(card => {
+                const row = card.closest('.msg-row');
+                if (row) row.remove();
+                else card.remove();
+            });
+            const qr = document.getElementById('quickRepliesContainer');
+            if (qr) qr.innerHTML = '';
+        }
+
+        function resetCopilotOnboardingState() {
+            _copilotOnboardingDismissed = false;
+        }
+
         // Presents 4 entry-point choices instead of jumping straight into the Q&A
         // flow. Ordered fastest-to-most-guided: try the example (zero typing, see
         // it work immediately), describe in your own words (the real, flexible
@@ -93,6 +113,7 @@
                     '<div class="mode-example-text">&ldquo;' + EXAMPLE_PROMPT_TEXT + '&rdquo;</div>' +
                     '<button type="button" class="mode-example-insert" title="Run this example">' + MODE_CHOICE_ICONS.insert + '</button>';
                 const runExample = () => {
+                    dismissCopilotOnboarding();
                     const input = document.getElementById('chatInput');
                     input.value = EXAMPLE_PROMPT_TEXT;
                     sendMessage();
@@ -127,6 +148,7 @@
                 stepBtn.className = 'mode-choice-btn';
                 stepBtn.innerHTML = MODE_CHOICE_ICONS.steps + '<span>Guide me step by step</span>';
                 stepBtn.onclick = () => {
+                    dismissCopilotOnboarding();
                     botSay(steps[0].ask, steps[0].qr);
                 };
 
@@ -444,23 +466,328 @@
             updateFieldChipValue(fieldId);
             flashFieldChip(fieldId);
             debouncedSave();
+            if (['country', 'productName', 'classMoa', 'indication', 'launchYear', 'peakYear'].includes(fieldId)) {
+                refreshModeChoiceStarterCard();
+                if (fieldId === 'launchYear' || fieldId === 'peakYear') {
+                    validateProductFields();
+                } else {
+                    updateDefineFlowButtonState();
+                }
+            }
         }
 
-        function populateProductInfoFields(fields) {
-            if (!fields || typeof fields !== 'object') return;
+        function getStage1FormState() {
+            return {
+                country: (document.getElementById('country') || {}).value || '',
+                productName: (document.getElementById('productName') || {}).value || '',
+                classMoa: (document.getElementById('classMoa') || {}).value || '',
+                indication: (document.getElementById('indication') || {}).value || '',
+                launchYear: (document.getElementById('launchYear') || {}).value || '',
+                peakYear: (document.getElementById('peakYear') || {}).value || '',
+            };
+        }
+
+        function isLaunchYearValid(val) {
+            if (!val || !String(val).trim()) return false;
+            const y = parseInt(val, 10);
+            return !isNaN(y) && y >= 2000 && y <= 2100;
+        }
+
+        function isPeakYearValid(val, launchVal) {
+            if (!val || !String(val).trim()) return false;
+            const y = parseInt(val, 10);
+            const launch = parseInt(launchVal, 10);
+            if (isNaN(y) || y < 2000 || y > 2100) return false;
+            if (!isNaN(launch) && y <= launch) return false;
+            return true;
+        }
+
+        function getMissingStage1Steps(form) {
+            form = form || getStage1FormState();
+            return steps.filter(s => {
+                const v = form[s.key] || '';
+                if (s.key === 'launchYear') return !isLaunchYearValid(v);
+                if (s.key === 'peakYear') return !isPeakYearValid(v, form.launchYear);
+                return !v || !String(v).trim();
+            });
+        }
+
+        function syncChatStepFromForm(form) {
+            const missing = getMissingStage1Steps(form);
+            if (missing.length === 0) {
+                chatStep = 6;
+                return;
+            }
+            const idx = steps.findIndex(s => s.key === missing[0].key);
+            chatStep = idx >= 0 ? idx : 0;
+        }
+
+        function buildStage1ConfirmMessage(form) {
+            form = form || getStage1FormState();
+            return `✓ **All product details captured!** Please review and confirm:\n\n• **Country:** ${form.country}\n• **Product:** ${form.productName}\n• **Class/MoA:** ${form.classMoa}\n• **Indication:** ${form.indication}\n• **Launch Year:** ${form.launchYear} → **Forecast - End Year:** ${form.peakYear}\n\nDoes everything look correct? Click **Confirm & Proceed** to move to the next step.`;
+        }
+
+        function buildStage1ExtractedSummary(form) {
+            form = form || getStage1FormState();
+            const lines = [];
+            if (form.country) lines.push(`• **Country:** ${form.country}`);
+            if (form.productName) lines.push(`• **Product:** ${form.productName}`);
+            if (form.classMoa) lines.push(`• **Class/MoA:** ${form.classMoa}`);
+            if (form.indication) lines.push(`• **Indication:** ${form.indication}`);
+            return lines.join('\n');
+        }
+
+        let _piCopilotProgress = null;
+        let _piProgressTimer = null;
+        let _piExtractCompletionKey = '';
+
+        function endPiCopilotProgress() {
+            if (_piProgressTimer) {
+                clearInterval(_piProgressTimer);
+                _piProgressTimer = null;
+            }
+            if (_piCopilotProgress) {
+                _piCopilotProgress.remove();
+                _piCopilotProgress = null;
+            }
+        }
+
+        function finishPiCopilotProgressMessage(msg) {
+            if (_piProgressTimer) {
+                clearInterval(_piProgressTimer);
+                _piProgressTimer = null;
+            }
+            if (_piCopilotProgress) {
+                _piCopilotProgress.update(msg);
+                _piCopilotProgress = null;
+                return;
+            }
+            addMsg(msg, 'bot');
+        }
+
+        function ensureCopilotOpen() {
+            const shell = document.getElementById('appShell');
+            if (shell && shell.classList.contains('chat-hidden')) {
+                shell.classList.remove('chat-hidden');
+                const fab = document.getElementById('chatFab');
+                if (fab) fab.style.display = 'none';
+            }
+        }
+
+        function notifyCopilotPiProcessing(displayName) {
+            if (!displayName) return;
+            dismissCopilotOnboarding();
+            ensureCopilotOpen();
+            addMsg(`📎 **${displayName}**`, 'user');
+            conversationHistory.push({ role: 'user', content: `Uploaded PI document: ${displayName}` });
+            endPiCopilotProgress();
+            _piCopilotProgress = addLiveChatMsg('Reading your prescribing information…');
+            let tick = 0;
+            _piProgressTimer = setInterval(() => {
+                if (!_piCopilotProgress) return;
+                tick += 1;
+                const suffix = tick >= 3
+                    ? '\n\n_Still working — large documents can take up to a minute._'
+                    : '';
+                _piCopilotProgress.update('Reading your prescribing information…' + suffix);
+            }, 12000);
+        }
+
+        function notifyCopilotPiError(message) {
+            endPiCopilotProgress();
+            dismissCopilotOnboarding();
+            ensureCopilotOpen();
+            const detail = message && message.length <= 120 ? message : 'Extraction failed. Try again or enter details manually.';
+            const reply = `⚠️ I couldn't read that document. ${detail}`;
+            botSay(reply, ['Guide me step by step', 'Describe your product']);
+            conversationHistory.push({ role: 'assistant', content: reply });
+        }
+
+        function buildSessionStarterPlainText(form) {
+            form = form || getStage1FormState();
+            if (!form.productName && !form.indication) return '';
+            let text = 'Forecast for ' + (form.productName || 'product');
+            if (form.classMoa) text += ' (' + form.classMoa + ')';
+            if (form.country) text += ' in ' + form.country;
+            if (form.indication) text += ' for ' + form.indication;
+            if (isLaunchYearValid(form.launchYear)) text += ', launching ' + form.launchYear;
+            if (isPeakYearValid(form.peakYear, form.launchYear)) text += ', forecast end year ' + form.peakYear;
+            return text;
+        }
+
+        function refreshModeChoiceStarterCard() {
+            const form = getStage1FormState();
+            const sessionText = buildSessionStarterPlainText(form);
+            const hasSession = !!(form.productName || form.indication);
+
+            document.querySelectorAll('.mode-choice-card').forEach(card => {
+                const exampleRow = card.querySelector('.mode-example-row');
+                if (!exampleRow) return;
+
+                if (hasSession && sessionText) {
+                    exampleRow.style.display = '';
+                    const textEl = exampleRow.querySelector('.mode-example-text');
+                    if (textEl) textEl.innerHTML = '&ldquo;' + sessionText + '&rdquo;';
+                    exampleRow.title = 'Click to use this forecast';
+                    const runSession = () => {
+                        const input = document.getElementById('chatInput');
+                        if (input) {
+                            input.value = sessionText;
+                            sendMessage();
+                        }
+                    };
+                    exampleRow.onclick = runSession;
+                    const btn = exampleRow.querySelector('.mode-example-insert');
+                    if (btn) btn.onclick = (e) => { e.stopPropagation(); runSession(); };
+                } else {
+                    exampleRow.style.display = 'none';
+                }
+            });
+        }
+
+        function isStage1CopilotContext() {
+            if (getWorkflowStage() === 'product_info') return true;
+            const card = document.getElementById('productInfoCard');
+            return !!(card && card.style.display !== 'none');
+        }
+
+        function syncCopilotAfterStage1Fill(options) {
+            options = options || {};
+            if (options.source !== 'pi_upload') return;
+            if (!isStage1CopilotContext()) return;
+
+            refreshModeChoiceStarterCard();
+            const form = getStage1FormState();
+            syncChatStepFromForm(form);
+            const missing = getMissingStage1Steps(form);
+            const sourceName = options.sourceName || 'your document';
+            const summary = buildStage1ExtractedSummary(form);
+
+            let msg = `✓ I read **${sourceName}**.`;
+            let qr = [];
+            if (summary) msg += `\n\n${summary}`;
+            if (missing.length === 0) {
+                msg = buildStage1ConfirmMessage(form);
+                qr = ['✓ Confirm & Proceed', 'Edit Details'];
+                validateProductFields();
+            } else {
+                msg += `\n\nI still need a few details.\n\n${missing[0].ask}`;
+                qr = missing[0].qr;
+            }
+            finishPiCopilotProgressMessage(msg);
+            setQuickReplies(qr);
+            const box = document.getElementById('messages');
+            if (box) box.scrollTop = box.scrollHeight;
+            conversationHistory.push({ role: 'assistant', content: msg });
+        }
+
+        function handlePiExtractCopilotSuccess(data, displayName) {
+            data = data || {};
+            dismissCopilotOnboarding();
+            displayName = displayName || data.source_name || 'your document';
+            const key = displayName + '|' + (data.session_id || '') + '|' + JSON.stringify(data.fields || {});
+            if (_piExtractCompletionKey === key) return;
+            _piExtractCompletionKey = key;
+
+            if (data.session_id) setForecastSessionId(data.session_id);
+            populateProductInfoFields(data.fields || {}, {
+                source: 'pi_upload',
+                sourceName: displayName,
+            });
+        }
+
+        function populateProductInfoFields(fields, options) {
+            options = options || {};
+            const fromPi = options.source === 'pi_upload';
+            if (!fields || typeof fields !== 'object') {
+                if (!fromPi) return;
+                fields = {};
+            }
+            if (fromPi) {
+                fillField('launchYear', '');
+                fillField('peakYear', '');
+            }
             const allowed = ['country', 'productName', 'classMoa', 'indication', 'launchYear', 'peakYear'];
             allowed.forEach(id => {
+                if (fromPi && (id === 'launchYear' || id === 'peakYear')) return;
                 let val = fields[id];
                 if (val !== undefined && val !== null && String(val).trim() !== '') {
                     val = sanitizeStage1DisplayField(id, String(val));
                     fillField(id, val);
                 }
             });
-            if (fields.launchYear || fields.peakYear) {
+            if (fromPi) {
+                validateProductFields();
+            } else if (fields.launchYear || fields.peakYear) {
                 validateProductFields();
             }
             updateDefineFlowButtonState();
             console.log('form population: product info fields applied', Object.keys(fields));
+            if (fromPi) {
+                syncCopilotAfterStage1Fill(options);
+            } else {
+                refreshModeChoiceStarterCard();
+            }
+        }
+
+        function installPiExtractCopilotBridge() {
+            if (window.__piExtractCopilotBridgeInstalled) return;
+            window.__piExtractCopilotBridgeInstalled = true;
+            const origFetch = window.fetch.bind(window);
+
+            function isPiExtractUrl(url) {
+                const href = typeof url === 'string' ? url : (url && url.url) || '';
+                return String(href).includes('/api/product-info/extract');
+            }
+
+            function resolvePiExtractDisplayName(init) {
+                if (!init || !init.body) return 'document';
+                if (init.body instanceof FormData) {
+                    const file = init.body.get('file');
+                    if (file && typeof file === 'object' && 'name' in file && file.name) return file.name;
+                }
+                if (typeof init.body === 'string') {
+                    try {
+                        const parsed = JSON.parse(init.body);
+                        if (parsed.url) {
+                            const u = String(parsed.url);
+                            return u.length > 48 ? u.slice(0, 45) + '...' : u;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+                return 'document';
+            }
+
+            function formatPiExtractError(data) {
+                const raw = data.detail || data.message || 'Extraction failed.';
+                if (Array.isArray(raw)) {
+                    return raw.map(d => (typeof d === 'string' ? d : d.msg || '')).filter(Boolean).join(', ');
+                }
+                return String(raw);
+            }
+
+            window.fetch = async function piExtractFetchBridge(input, init) {
+                if (!isPiExtractUrl(input)) {
+                    return origFetch(input, init);
+                }
+                const displayName = resolvePiExtractDisplayName(init);
+                notifyCopilotPiProcessing(displayName);
+                try {
+                    const res = await origFetch(input, init);
+                    const data = await res.clone().json().catch(() => ({}));
+                    if (res.ok && data.status === 'ok') {
+                        handlePiExtractCopilotSuccess(data, displayName);
+                    } else if (!res.ok) {
+                        notifyCopilotPiError(formatPiExtractError(data));
+                    } else {
+                        notifyCopilotPiError(formatPiExtractError(data) || 'Extraction failed. Try again.');
+                    }
+                    return res;
+                } catch (err) {
+                    notifyCopilotPiError('Extraction failed. Try again.');
+                    throw err;
+                }
+            };
         }
 
         // ── Compact "field chip" UI (Product Info) ──────────────────────────────
@@ -624,6 +951,7 @@
             const text = input.value.trim();
             if (!text) return;
 
+            dismissCopilotOnboarding();
             document.getElementById('quickRepliesContainer').innerHTML = '';
             addMsg(text, 'user');
             input.value = '';
@@ -796,6 +1124,7 @@
                     };
                     const allFilled = Object.values(formNow).every(v => v && v.trim() !== '');
                     if (allFilled) chatStep = 6;
+                    if (allFilled) validateProductFields();
                     // If all fields JUST became complete, show confirmation instead of backend message
                     if (chatStep === 6 && prevChatStep < 6 && getWorkflowStage() === 'product_info') {
                         const confirmMsg = `✓ **All product details captured!** Please review and confirm:\n\n• **Country:** ${formNow.country}\n• **Product:** ${formNow.productName}\n• **Class/MoA:** ${formNow.classMoa}\n• **Indication:** ${formNow.indication}\n• **Launch Year:** ${formNow.launchYear} → **Forecast - End Year:** ${formNow.peakYear}\n\nDoes everything look correct? Click **Confirm & Proceed** to move to the next step.`;
@@ -1087,6 +1416,7 @@
 
                 if (allFilled) {
                     chatStep = 6;
+                    validateProductFields();
                     botSay(`✓ **All product details captured!** Please review and confirm:\n\n• **Country:** ${formNow.country}\n• **Product:** ${formNow.productName}\n• **Class/MoA:** ${formNow.classMoa}\n• **Indication:** ${formNow.indication}\n• **Launch Year:** ${formNow.launchYear} → **Forecast - End Year:** ${formNow.peakYear}\n\nDoes everything look correct? Click **Confirm & Proceed** to move to the next step.`,
                         ['✓ Confirm & Proceed', 'Edit Details']);
                 } else {
@@ -1146,6 +1476,7 @@
 
                 if (remaining.length === 0) {
                     chatStep = 6;
+                    validateProductFields();
                     botSay(`✓ **All product details captured!** Please review and confirm:\n\n• **Country:** ${updatedForm.country}\n• **Product:** ${updatedForm.productName}\n• **Class/MoA:** ${updatedForm.classMoa}\n• **Indication:** ${updatedForm.indication}\n• **Launch Year:** ${updatedForm.launchYear} → **Forecast - End Year:** ${updatedForm.peakYear}\n\nDoes everything look correct? Click **Confirm & Proceed** to move to the next step.`,
                         ['✓ Confirm & Proceed', 'Edit Details']);
                 } else {
@@ -1171,6 +1502,7 @@
             document.getElementById('quickRepliesContainer').innerHTML = '';
             // Reset forecast tool silently (suppresses its own bot message)
             startOver(true);
+            resetCopilotOnboardingState();
             const resetMsg = 'Chat and forecast cleared.\n\nHow would you like to begin?';
             botSayModeChoice(resetMsg);
             conversationHistory = [{ role: 'assistant', content: resetMsg }];
@@ -4730,7 +5062,10 @@
             chatStep = 0;
             conversationHistory = [];
             updateNavigation(1);
-            if (!silent) botSayModeChoice('Forecast reset. Let\'s start fresh.\n\nHow would you like to begin?');
+            if (!silent) {
+                resetCopilotOnboardingState();
+                botSayModeChoice('Forecast reset. Let\'s start fresh.\n\nHow would you like to begin?');
+            }
         }
 
         function updateNavigation(active) {
@@ -5030,6 +5365,24 @@
             return summaryHtml + bulletsHtml;
         }
 
+        let _aiRecCopilotProgress = null;
+
+        function endAiRecCopilotProgress() {
+            if (_aiRecCopilotProgress) {
+                _aiRecCopilotProgress.remove();
+                _aiRecCopilotProgress = null;
+            }
+        }
+
+        function buildPiContextCopilotNote(data) {
+            if (!data || !data.used_pi_context) return '';
+            const preview = (data.pi_context_preview || '').trim();
+            if (preview) {
+                return `📋 **Used your uploaded PI summary:**\n\n_${preview}_\n\n`;
+            }
+            return '📋 **Used your uploaded PI summary** together with current product details and playbook rules.\n\n';
+        }
+
         // User-triggered (button or chat command) — fetches the recommendation and
         // posts a short summary + reasoned bullet list + parameter chips into the
         // chat panel, rather than an always-on inline card that ran automatically
@@ -5045,6 +5398,17 @@
             const sessionId = getForecastSessionId();
 
             const triggerBtn = document.getElementById('aiRecTriggerBtn');
+
+            ensureCopilotOpen();
+            dismissCopilotOnboarding();
+            addMsg('✨ **Get AI Recommendation**', 'user');
+            conversationHistory.push({ role: 'user', content: 'Get AI Recommendation' });
+            endAiRecCopilotProgress();
+            _aiRecCopilotProgress = addLiveChatMsg(
+                sessionId
+                    ? 'Analysing forecast flow using your product details, uploaded PI summary, and playbook rules…'
+                    : 'Analysing forecast flow using your product details and playbook rules…'
+            );
 
             // Show loading state
             aiRecLoading = true;
@@ -5089,15 +5453,24 @@
                 }
                 aiRecBulletsPlain = bullets.map(b => (b || '').replace(/\*\*/g, ''));
 
-                let msg = buildRecommendationHtml(summary, bullets);
+                let msg = buildPiContextCopilotNote(data) + buildRecommendationHtml(summary, bullets);
                 if (aiRecParams && aiRecParams.length) {
                     msg += buildParamChipsHtml(aiRecParams);
                 }
 
-                botSay(msg, ['Apply Recommendation', 'Generate Now']);
+                if (_aiRecCopilotProgress) {
+                    _aiRecCopilotProgress.update(msg);
+                    _aiRecCopilotProgress = null;
+                } else {
+                    addMsg(msg, 'bot');
+                }
+                setQuickReplies(['Apply Recommendation', 'Generate Now']);
+                const plainMsg = (buildPiContextCopilotNote(data) + summary + '\n' + bullets.join('\n')).replace(/\*\*/g, '');
+                conversationHistory.push({ role: 'assistant', content: plainMsg });
 
             } catch (err) {
                 console.warn('AI recommendation API unavailable, using fallback:', err);
+                endAiRecCopilotProgress();
                 const fallback = buildFallbackRec(indication);
                 aiRecBulletsPlain = fallback.bullets.map(b => (b || '').replace(/\*\*/g, ''));
                 let msg = buildRecommendationHtml(fallback.summary, fallback.bullets);
@@ -5416,7 +5789,10 @@
             else attach();
         }());
 
+        installPiExtractCopilotBridge();
+
         // Expose functions to window for dynamic event handler bindings
+        window.toggleChat = toggleChat;
         window.updateAssumption = updateAssumption;
         window.updateYoYGrowth = updateYoYGrowth;
         window.updateShareParam = updateShareParam;
@@ -5425,7 +5801,14 @@
         window.validateShareParamInput = validateShareParamInput;
         window.validateProductFields = validateProductFields;
         window.populateProductInfoFields = populateProductInfoFields;
+        window.handlePiExtractCopilotSuccess = handlePiExtractCopilotSuccess;
+        window.notifyCopilotPiProcessing = notifyCopilotPiProcessing;
+        window.notifyCopilotPiError = notifyCopilotPiError;
         window.toggleFlowSection = toggleFlowSection;
         window.toggleFlowEditMode = toggleFlowEditMode;
         window.toggleParamCard = toggleParamCard;
         window.toggleParamMenu = toggleParamMenu;
+        window.showParameterSelection = showParameterSelection;
+        window.handleAIRecTrigger = handleAIRecTrigger;
+        window.activateFieldChip = activateFieldChip;
+        window.collapseFieldChip = collapseFieldChip;

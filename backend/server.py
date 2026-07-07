@@ -323,19 +323,23 @@ _nextjs_next = _nextjs_out / "_next"
 if _nextjs_next.exists():
     app.mount("/_next", StaticFiles(directory=str(_nextjs_next)), name="nextjs-static")
 
-# Serve public JS files with no-cache headers so browser always fetches fresh copies
-_nextjs_js = _nextjs_out / "js"
-if _nextjs_js.exists():
-    @app.get("/js/{filename}")
-    async def serve_js(filename: str):
-        path = _nextjs_js / filename
-        if not path.exists():
-            raise HTTPException(status_code=404)
-        return FileResponse(
-            str(path),
-            media_type="application/javascript",
-            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
-        )
+# Serve JS from public/ (source of truth during dev); fall back to out/js after build.
+_nextjs_public_js = _project_root / "frontend-next" / "public" / "js"
+_nextjs_out_js = _nextjs_out / "js"
+
+
+@app.get("/js/{filename}")
+async def serve_js(filename: str):
+    path = _nextjs_public_js / filename
+    if not path.exists():
+        path = _nextjs_out_js / filename
+    if not path.exists():
+        raise HTTPException(status_code=404)
+    return FileResponse(
+        str(path),
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+    )
 
 # ---------------------------------------------------------------------------
 # Request / Response models
@@ -1848,12 +1852,21 @@ async def recommend(req: RecommendRequest):
             launch_year=req.launch_year,
             peak_year=req.peak_year,
         )
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             run_recommendation,
             _bedrock.invoke_with_retry,
             stage1,
             stage2_context,
         )
+        if isinstance(result, dict) and "error" not in result:
+            used_pi = bool(stage2_context and str(stage2_context).strip())
+            result["used_pi_context"] = used_pi
+            if used_pi:
+                preview = str(stage2_context).strip()
+                result["pi_context_preview"] = (
+                    preview[:280] + "…" if len(preview) > 280 else preview
+                )
+        return result
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=500,

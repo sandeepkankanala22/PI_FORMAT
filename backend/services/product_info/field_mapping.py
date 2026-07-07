@@ -23,10 +23,7 @@ def map_to_form_fields(model: ProductInfoLLMOutput) -> Dict[str, str]:
         fields["indication"] = model.indication
     if class_moa:
         fields["classMoa"] = class_moa
-    if model.start_year:
-        fields["launchYear"] = model.start_year
-    if model.end_year:
-        fields["peakYear"] = model.end_year
+    # Launch / peak years are entered by the user in the UI — not extracted from PI uploads.
 
     logger.info("Field mapping result: %s", list(fields.keys()))
     return fields

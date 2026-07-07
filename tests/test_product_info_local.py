@@ -40,6 +40,8 @@ def test_service_modules() -> None:
     assert fields["productName"] == "TUB-040"
     assert fields["country"] == "United States"
     assert "ADC" in fields["classMoa"]
+    assert "launchYear" not in fields
+    assert "peakYear" not in fields
 
     doc = Document()
     doc.add_paragraph("Product Name: TestDrug")
@@ -119,6 +121,8 @@ def test_live_docx_extract() -> None:
         print("fields:", data.get("fields"))
         assert data["status"] == "ok"
         assert data.get("fields")
+        assert "launchYear" not in data.get("fields", {})
+        assert "peakYear" not in data.get("fields", {})
     else:
         # Bedrock may be unavailable in CI — surface detail for manual review
         print("detail:", data.get("detail"))

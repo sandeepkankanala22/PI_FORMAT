@@ -41,10 +41,14 @@ export default function Home() {
       content: data.reference_content || ''
     };
 
-    if (data.fields && typeof (window as any).populateProductInfoFields === 'function') {
-      (window as any).populateProductInfoFields(data.fields);
-    }
-    if (data.session_id && typeof (window as any).setForecastSessionId === 'function') {
+    if (typeof (window as any).handlePiExtractCopilotSuccess === 'function') {
+      (window as any).handlePiExtractCopilotSuccess(data, displayName);
+    } else if (data.fields && typeof (window as any).populateProductInfoFields === 'function') {
+      (window as any).populateProductInfoFields(data.fields, {
+        source: 'pi_upload',
+        sourceName: displayName,
+      });
+    } else if (data.session_id && typeof (window as any).setForecastSessionId === 'function') {
       (window as any).setForecastSessionId(data.session_id);
     }
   };
@@ -980,7 +984,7 @@ export default function Home() {
       {/* CDN Scripts */}
       <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" strategy="afterInteractive" />
       <Script src="https://cdn.jsdelivr.net/npm/hyperformula@2.6.0/dist/hyperformula.full.min.js" strategy="afterInteractive" />
-      <Script src="/js/forecast.js?v=20" strategy="afterInteractive" />
+      <Script src="/js/forecast.js?v=26" strategy="afterInteractive" />
     </>
   )
 }

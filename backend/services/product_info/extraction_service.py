@@ -83,14 +83,17 @@ class ExtractionService:
                 validated = summarized
 
         fields = map_to_form_fields(validated)
+        # Never return forecast years from PI extraction — user enters via copilot/form.
+        fields.pop("launchYear", None)
+        fields.pop("peakYear", None)
         stage2_summary = (validated.stage2_context_summary or "").strip()
         stage1_snapshot = {
             "product_name": fields.get("productName", ""),
             "country": fields.get("country", ""),
             "indication": fields.get("indication", ""),
             "class_moa": fields.get("classMoa", ""),
-            "launch_year": fields.get("launchYear", ""),
-            "peak_year": fields.get("peakYear", ""),
+            "launch_year": "",
+            "peak_year": "",
         }
 
         logger.info(
