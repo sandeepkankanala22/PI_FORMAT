@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-07-07T11:10:20.887Z",
+  "product_info": {
+    "country": "United States",
+    "productName": "TubiCure-101",
+    "classMoa": "Monoclonal Antibody (Interleukin-17 (IL-17) inhibitor)",
+    "indication": "Moderate to severe plaque psoriasis in adults who are candidates for systemic therapy or phototherapy",
+    "launchYear": "2027",
+    "peakYear": "2035"
+  },
+  "forecast_flow": {
+    "preset": "standard",
+    "epidemiology_type": "prevalence",
+    "parameter_order": [
+      "population",
+      "prevalence",
+      "diagnosisRate",
+      "treatmentRate",
+      "eligibilityCriteria",
+      "classShare",
+      "peakProductShare",
+      "annualCostPerPatient",
+      "discount"
+    ],
+    "parameter_labels": {
+      "population": "Total Population",
+      "prevalence": "Prevalence Rate",
+      "incidence": "Incidence Rate",
+      "severity": "Severity / Subtype %",
+      "diagnosisRate": "Diagnosis Rate",
+      "treatmentRate": "Treatment Rate",
+      "eligibilityCriteria": "Eligibility Criteria",
+      "progressionRate": "Disease Progression Rate",
+      "classShare": "Peak Class Share",
+      "peakProductShare": "Peak Product Share",
+      "annualCostPerPatient": "Annual Cost per Patient",
+      "discount": "Discount/Rebate Rate",
+      "adoptionPeakTime": "Time to Peak (Years)"
+    }
+  },
+  "selected_parameters": [
+    "population",
+    "prevalence",
+    "diagnosisRate",
+    "treatmentRate",
+    "eligibilityCriteria",
+    "classShare",
+    "peakProductShare",
+    "annualCostPerPatient",
+    "discount"
+  ],
+  "custom_parameters": {},
+  "assumptions": {},
+  "forecast_results": []
+}
