@@ -1816,86 +1816,49 @@ async def research_ws(websocket: WebSocket):
 # Parameter recommendation endpoint
 # ---------------------------------------------------------------------------
 
-RECOMMEND_SYSTEM = """\
-You are a commercial forecasting expert specialising in pharmaceutical revenue models.
-
-Given a product's details, recommend which forecast flow parameters to include and explain why.
-
-Available parameter IDs, their meaning, and the DISPLAY NAME to use whenever you
-refer to them in prose (never write the raw ID in a sentence):
-  prevalence          – chronic / prevalent diseases (RA, MS, T2D, HF, AD)        → "Prevalence Rate"
-  incidence           – oncology or acute diseases (use INSTEAD of prevalence)    → "Incidence Rate"
-  diagnosisRate       – proportion of patients who are diagnosed                  → "Diagnosis Rate"
-  severity            – disease severity subtype filter                          → "Severity"
-  treatmentRate       – proportion of diagnosed patients who receive treatment    → "Treatment Rate"
-  eligibilityCriteria – biomarker positivity, line-of-therapy, inclusion criteria → "Eligibility Criteria"
-  progressionRate     – disease progression or line-advancement rate             → "Progression Rate"
-  classShare          – drug-class peak market share                             → "Class Share"
-  peakProductShare    – product share within the class at peak                   → "Peak Product Share"
-  annualCostPerPatient – annual gross treatment cost per patient                 → "Annual Cost / Patient"
-  discount            – rebate / net pricing discount rate                       → "Discount Rate"
-
-Rules:
-  - Include EITHER prevalence OR incidence, never both.
-  - Always include classShare, peakProductShare, annualCostPerPatient, discount.
-  - Always include diagnosisRate unless the indication has near-universal diagnosis.
-  - For oncology: use incidence, include eligibilityCriteria (biomarker), exclude severity.
-  - For rare disease: use prevalence, include eligibilityCriteria; treatmentRate optional.
-  - For chronic disease (RA, MS, T2D, HF): use prevalence, include treatmentRate.
-
-This is shown in a chat bubble, read at a glance, not a report. Be concrete and
-specific to this exact asset/indication, never generic filler — but a reader
-should still understand WHY, not just WHAT was chosen.
-
-Respond ONLY with a valid JSON object (no markdown fences, no prose outside it):
-{
-  "summary": "<1 short sentence, max ~20 words: the overall epidemiology + flow rationale for this asset in plain terms.>",
-  "bullets": [
-    "<bullet 1, max 16 words: the epidemiology basis — Prevalence Rate or Incidence Rate — and why. Use the DISPLAY NAME in **bold**, then a short concrete reason.>",
-    "<bullet 2, max 16 words: the single attrition/eligibility parameter that most determines peak revenue for THIS asset, and why. Use the DISPLAY NAME in **bold**, then a short concrete reason.>"
-  ],
-  "params": ["<paramId1>", "<paramId2>", ...]
-}
-"""
-
-
 class RecommendRequest(BaseModel):
     indication: str
     product_name: str = ""
     class_moa: str = ""
     country: str = ""
+    launch_year: str = ""
+    peak_year: str = ""
+    session_id: str = ""
 
 
 @app.post("/api/recommend")
 async def recommend(req: RecommendRequest):
-    prompt = (
-        f"Product:    {req.product_name or 'unnamed'}\n"
-        f"Class/MoA:  {req.class_moa or 'unknown'}\n"
-        f"Indication: {req.indication or 'unspecified'}\n"
-        f"Country:    {req.country or 'unspecified'}\n\n"
-        "Recommend the optimal set of forecast flow parameters for this asset."
-    )
+    if not (req.indication or "").strip():
+        raise HTTPException(status_code=400, detail="Indication is required for AI recommendation.")
 
-    resp = await asyncio.to_thread(
-        _bedrock.invoke_with_retry,
-        messages=[{"role": "user", "content": prompt}],
-        system_prompt=RECOMMEND_SYSTEM,
-        temperature=0.3,
-        max_tokens=700,
-    )
+    stage2_context = None
+    if req.session_id:
+        session = _get_forecast_workflow_session(req.session_id)
+        if session and session.get("has_pi_document") and session.get("stage2_context_summary"):
+            stage2_context = session["stage2_context_summary"]
 
-    raw = resp["content"]
-    # Strip markdown code fences if the LLM wrapped the JSON
-    cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip(), flags=re.IGNORECASE)
-    cleaned = re.sub(r"\s*```$", "", cleaned.strip())
-    # Also try to extract the first {...} block in case of surrounding prose
-    m = re.search(r"\{[\s\S]*\}", cleaned)
-    if m:
-        cleaned = m.group(0)
     try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        return {"error": "Failed to parse recommendation", "raw": raw}
+        from backend.services.recommend_service import Stage1Input, run_recommendation
+
+        stage1 = Stage1Input(
+            indication=req.indication,
+            product_name=req.product_name,
+            class_moa=req.class_moa,
+            country=req.country,
+            launch_year=req.launch_year,
+            peak_year=req.peak_year,
+        )
+        return await asyncio.to_thread(
+            run_recommendation,
+            _bedrock.invoke_with_retry,
+            stage1,
+            stage2_context,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Playbook rules or recommendation prompt not configured.",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -2214,6 +2177,11 @@ async def get_config():
 @app.post("/api/save-input")
 async def save_input(data: dict):
     """Persist user inputs locally only when S3 disabled. When S3 enabled, do nothing."""
+    session_id = (data.get("session_id") or "").strip()
+    if session_id:
+        product_info = data.get("product_info") or {}
+        _sync_forecast_session_stage1(session_id, product_info)
+
     if s3_enabled():
         return {"status": "saved", "path": "s3"}
     try:
@@ -2242,6 +2210,80 @@ _agent_job_status: Dict[str, dict] = {}  # session_id -> {status, response?, err
 # PPTX agent state (parallel to Excel agent)
 _pptx_job_status: Dict[str, dict] = {}   # session_id -> {status, pptx_path?, error?}
 _pptx_file_info: Dict[str, dict] = {}    # session_id -> {local, s3_key}
+
+# Forecast workflow context (Stage 1 + PI Stage 2 summary for AI recommend)
+_forecast_workflow_sessions: Dict[str, dict] = {}
+_FORECAST_SESSION_TTL_SECONDS = int(os.getenv("FORECAST_SESSION_TTL_SECONDS", "86400"))
+_forecast_session_log = logging.getLogger("ForecastWorkflowSession")
+
+
+def _prune_forecast_workflow_sessions() -> None:
+    now = time.time()
+    expired = [
+        sid
+        for sid, entry in _forecast_workflow_sessions.items()
+        if now - entry.get("_ts", now) > _FORECAST_SESSION_TTL_SECONDS
+    ]
+    for sid in expired:
+        _forecast_workflow_sessions.pop(sid, None)
+
+
+def _create_forecast_session_id() -> str:
+    return f"fc_{uuid.uuid4().hex[:12]}"
+
+
+def _get_forecast_workflow_session(session_id: str) -> Optional[dict]:
+    if not session_id:
+        return None
+    _prune_forecast_workflow_sessions()
+    return _forecast_workflow_sessions.get(session_id)
+
+
+def _upsert_forecast_workflow_session(
+    session_id: Optional[str],
+    stage1: dict,
+    stage2_context_summary: str = "",
+    has_pi_document: bool = False,
+) -> str:
+    _prune_forecast_workflow_sessions()
+    sid = (session_id or "").strip() or _create_forecast_session_id()
+    _forecast_workflow_sessions[sid] = {
+        "session_id": sid,
+        "stage1": dict(stage1),
+        "stage2_context_summary": (stage2_context_summary or "").strip(),
+        "has_pi_document": bool(has_pi_document),
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+        "_ts": time.time(),
+    }
+    _forecast_session_log.info(
+        "Session %s: stage1_keys=%s has_pi=%s stage2_chars=%d",
+        sid,
+        list(stage1.keys()),
+        has_pi_document,
+        len((stage2_context_summary or "").strip()),
+    )
+    return sid
+
+
+def _sync_forecast_session_stage1(session_id: str, product_info: dict) -> None:
+    session = _get_forecast_workflow_session(session_id)
+    if not session:
+        return
+    stage1 = session.setdefault("stage1", {})
+    mapping = {
+        "product_name": product_info.get("productName", ""),
+        "country": product_info.get("country", ""),
+        "indication": product_info.get("indication", ""),
+        "class_moa": product_info.get("classMoa", ""),
+        "launch_year": product_info.get("launchYear", ""),
+        "peak_year": product_info.get("peakYear", ""),
+    }
+    for key, value in mapping.items():
+        if value is not None and str(value).strip():
+            stage1[key] = str(value).strip()
+    session["updated_at"] = datetime.utcnow().isoformat() + "Z"
+    session["_ts"] = time.time()
+    _forecast_session_log.info("Session %s: stage1 synced from save-input", session_id)
 
 def _generate_run_session_id() -> str:
     """Session ID with timestamp first for chronological sorting."""
@@ -3655,18 +3697,21 @@ async def extract_product_info(
     request: Request,
     file: UploadFile | None = File(None),
     url: str | None = Form(None),
+    session_id: str | None = Form(None),
 ):
     """Extract product information from PDF/DOCX upload or URL via Bedrock."""
     if get_extraction_service is None:
         raise HTTPException(status_code=500, detail="Product info extraction service unavailable.")
 
     resolved_url = (url or "").strip()
+    resolved_session_id = (session_id or "").strip()
     if not file and not resolved_url:
         content_type = request.headers.get("content-type", "")
         if "application/json" in content_type:
             try:
                 body = await request.json()
                 resolved_url = (body.get("url") or "").strip()
+                resolved_session_id = (body.get("session_id") or resolved_session_id).strip()
             except Exception:
                 pass
 
@@ -3688,11 +3733,19 @@ async def extract_product_info(
             _pi_extract_log.info("Extract request: url=%s", resolved_url)
             result = await asyncio.to_thread(service.extract_from_url, resolved_url)
 
+        new_session_id = _upsert_forecast_workflow_session(
+            resolved_session_id or None,
+            stage1=result.stage1_snapshot or {},
+            stage2_context_summary=result.stage2_context_summary,
+            has_pi_document=True,
+        )
+
         return {
             "status": "ok",
             "fields": result.fields,
             "reference_content": result.reference_content,
             "source_name": result.source_name,
+            "session_id": new_session_id,
         }
     except FileTooLarge as exc:
         raise HTTPException(status_code=400, detail=exc.message) from exc

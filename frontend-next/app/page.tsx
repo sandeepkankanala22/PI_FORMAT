@@ -21,6 +21,7 @@ export default function Home() {
     fields?: Record<string, string>;
     reference_content?: string;
     source_name?: string;
+    session_id?: string;
   }, displayName: string) => {
     const labelSpan = document.getElementById('referenceFileLabel');
     const badge = document.getElementById('uploadDropzoneBadge');
@@ -42,6 +43,9 @@ export default function Home() {
 
     if (data.fields && typeof (window as any).populateProductInfoFields === 'function') {
       (window as any).populateProductInfoFields(data.fields);
+    }
+    if (data.session_id && typeof (window as any).setForecastSessionId === 'function') {
+      (window as any).setForecastSessionId(data.session_id);
     }
   };
 
@@ -976,7 +980,7 @@ export default function Home() {
       {/* CDN Scripts */}
       <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" strategy="afterInteractive" />
       <Script src="https://cdn.jsdelivr.net/npm/hyperformula@2.6.0/dist/hyperformula.full.min.js" strategy="afterInteractive" />
-      <Script src="/js/forecast.js?v=19" strategy="afterInteractive" />
+      <Script src="/js/forecast.js?v=20" strategy="afterInteractive" />
     </>
   )
 }

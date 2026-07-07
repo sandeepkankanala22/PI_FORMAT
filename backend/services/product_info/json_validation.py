@@ -48,6 +48,7 @@ class ProductInfoLLMOutput(BaseModel):
     mechanism_of_action: str = ""
     start_year: str = ""
     end_year: str = ""
+    stage2_context_summary: str = ""
 
     @field_validator(
         "product_name",
@@ -57,6 +58,7 @@ class ProductInfoLLMOutput(BaseModel):
         "mechanism_of_action",
         "start_year",
         "end_year",
+        "stage2_context_summary",
         mode="before",
     )
     @classmethod

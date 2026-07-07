@@ -1,0 +1,36 @@
+FORECAST FLOW PLAYBOOK RULES
+============================
+
+Available parameter IDs, their meaning, and the DISPLAY NAME to use whenever you
+refer to them in prose (never write the raw ID in a sentence):
+  prevalence          – chronic / prevalent diseases (RA, MS, T2D, HF, AD)        → "Prevalence Rate"
+  incidence           – oncology or acute diseases (use INSTEAD of prevalence)    → "Incidence Rate"
+  diagnosisRate       – proportion of patients who are diagnosed                  → "Diagnosis Rate"
+  severity            – disease severity subtype filter                          → "Severity"
+  treatmentRate       – proportion of diagnosed patients who receive treatment    → "Treatment Rate"
+  eligibilityCriteria – biomarker positivity, line-of-therapy, inclusion criteria → "Eligibility Criteria"
+  progressionRate     – disease progression or line-advancement rate             → "Progression Rate"
+  classShare          – drug-class peak market share                             → "Class Share"
+  peakProductShare    – product share within the class at peak                   → "Peak Product Share"
+  annualCostPerPatient – annual gross treatment cost per patient                 → "Annual Cost / Patient"
+  discount            – rebate / net pricing discount rate                       → "Discount Rate"
+
+PRESET TEMPLATES (starting points):
+  standard:  [prevalence, diagnosisRate, treatmentRate, classShare, peakProductShare, annualCostPerPatient, discount]
+  oncology:  [incidence, diagnosisRate, eligibilityCriteria, treatmentRate, classShare, peakProductShare, annualCostPerPatient, discount]
+  rare:      [prevalence, diagnosisRate, eligibilityCriteria, classShare, peakProductShare, annualCostPerPatient, discount]
+
+CORE RULES:
+  - Include EITHER prevalence OR incidence, never both.
+  - Always include classShare, peakProductShare, annualCostPerPatient, discount.
+  - Always include diagnosisRate unless the indication has near-universal diagnosis.
+
+DECISION RULES BY THERAPY AREA:
+  - Oncology (cancer): use incidence. Include eligibilityCriteria (biomarker / line-of-therapy gate). Exclude severity unless a specific subtype matters (e.g. HER2+, EGFR+).
+  - Rare disease (<1 in 2000 patients): use prevalence. Include eligibilityCriteria (genetic/phenotypic confirmation). Diagnosis rate is a critical uncertainty.
+  - Chronic disease (CV, diabetes, RA, COPD): use prevalence. Often skip eligibilityCriteria unless biomarker-targeted.
+  - Immunology (RA, psoriasis, IBD): use prevalence. Include severity if targeting moderate-severe subpopulation.
+  - Neurology (Alzheimer's, MS): use prevalence. Include eligibilityCriteria if biomarker-confirmed (e.g. amyloid PET).
+  - Acute/episodic: use incidence.
+  - For chronic disease (RA, MS, T2D, HF): use prevalence, include treatmentRate.
+  - For rare disease: use prevalence, include eligibilityCriteria; treatmentRate optional.

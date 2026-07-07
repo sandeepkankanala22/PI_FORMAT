@@ -21,6 +21,16 @@
 
         let chatStep = 0; // highest field index filled so far
         const BACKEND_URL = window.location.origin || ''; // Same-origin for deployed; '' for local dev
+        const FORECAST_SESSION_KEY = 'forecastSessionId';
+
+        function getForecastSessionId() {
+            try { return sessionStorage.getItem(FORECAST_SESSION_KEY) || ''; } catch (e) { return ''; }
+        }
+        function setForecastSessionId(id) {
+            try { if (id) sessionStorage.setItem(FORECAST_SESSION_KEY, id); } catch (e) { /* ignore */ }
+        }
+        window.getForecastSessionId = getForecastSessionId;
+        window.setForecastSessionId = setForecastSessionId;
 
         let conversationHistory = [];               // OpenAI message history
         let forecastCalculated = false;             // true once forecast results are ready
@@ -5030,6 +5040,9 @@
             const productName = document.getElementById('productName').value || '';
             const classMoa = document.getElementById('classMoa').value || '';
             const country = document.getElementById('country').value || '';
+            const launchYear = (document.getElementById('launchYear') || {}).value || '';
+            const peakYear = (document.getElementById('peakYear') || {}).value || '';
+            const sessionId = getForecastSessionId();
 
             const triggerBtn = document.getElementById('aiRecTriggerBtn');
 
@@ -5056,6 +5069,9 @@
                         product_name: productName,
                         class_moa: classMoa,
                         country,
+                        launch_year: launchYear,
+                        peak_year: peakYear,
+                        session_id: sessionId,
                     }),
                 });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -5320,6 +5336,7 @@
             if (_s3Enabled) { setSaveStatus('saved'); return; }  // Agent run writes to logs/; no duplicate to output
             const payload = {
                 timestamp: new Date().toISOString(),
+                session_id: getForecastSessionId(),
                 product_info: {
                     country: (document.getElementById('country') || {}).value || '',
                     productName: (document.getElementById('productName') || {}).value || '',

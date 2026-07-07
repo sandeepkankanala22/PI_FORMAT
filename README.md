@@ -106,7 +106,20 @@ Key environment variables are set in `apprunner.yaml` (model IDs, agent temperat
 | `PI_EXTRACT_TEXT_CHAR_LIMIT` | No | Max cleaned text chars sent to Bedrock (default `12000`) |
 | `PI_EXTRACT_CHUNK_SIZE` | No | Chunk window size for large documents (default `4000`) |
 | `PI_EXTRACT_BEDROCK_TIMEOUT` | No | Bedrock read timeout in seconds for PI extraction (default `30`) |
-| `PI_EXTRACT_MAX_TOKENS` | No | Max LLM output tokens for PI extraction JSON (default `512`) |
+| `PI_EXTRACT_MAX_TOKENS` | No | Max LLM output tokens for PI extraction JSON (default `1536`, includes Stage 2 context summary) |
+| `FORECAST_SESSION_TTL_SECONDS` | No | In-memory forecast workflow session TTL for PI + recommend context (default `86400`) |
+
+## Maintaining AI Recommendation Prompts
+
+Business-editable prompt files live under `backend/prompts/`:
+
+| File | Purpose |
+|------|---------|
+| `flow_rules.txt` | Forecast playbook rules used on every `/api/recommend` call (loaded fresh, no server restart needed) |
+| `ai_flow_recommendation_prompt.txt` | System prompt for AI flow recommendation (output schema: `summary`, `bullets`, `params`) |
+| `product_information_prompt.txt` | System prompt for PI upload extraction (Stage 1 fields + `stage2_context_summary`) |
+
+Prompt Studio files under `agents/excel_agent/prompts/` (e.g. `flow_generate.txt`) are separate and unchanged.
 
 ## Attribution
 
