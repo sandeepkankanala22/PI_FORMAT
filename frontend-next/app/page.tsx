@@ -106,6 +106,9 @@ export default function Home() {
     }
     if (urlInput) urlInput.value = '';
     setProcessingState(true, 'Uploading...');
+    if (typeof (window as any).notifyCopilotPiUploadStarted === 'function') {
+      (window as any).notifyCopilotPiUploadStarted(file.name, 'Uploading...');
+    }
     const formData = new FormData();
     formData.append('file', file);
     await runExtraction({ method: 'POST', body: formData }, file.name);
@@ -116,6 +119,10 @@ export default function Home() {
     if (!url) return;
     const fileInput = document.getElementById('referenceFile') as HTMLInputElement | null;
     if (fileInput) fileInput.value = '';
+    const displayName = url.length > 48 ? url.slice(0, 45) + '...' : url;
+    if (typeof (window as any).notifyCopilotPiUploadStarted === 'function') {
+      (window as any).notifyCopilotPiUploadStarted(displayName, 'Fetching document...');
+    }
     await runExtraction(
       {
         method: 'POST',
@@ -984,7 +991,7 @@ export default function Home() {
       {/* CDN Scripts */}
       <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" strategy="afterInteractive" />
       <Script src="https://cdn.jsdelivr.net/npm/hyperformula@2.6.0/dist/hyperformula.full.min.js" strategy="afterInteractive" />
-      <Script src="/js/forecast.js?v=26" strategy="afterInteractive" />
+      <Script src="/js/forecast.js?v=30" strategy="afterInteractive" />
     </>
   )
 }

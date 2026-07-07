@@ -540,6 +540,152 @@
         let _piCopilotProgress = null;
         let _piProgressTimer = null;
         let _piExtractCompletionKey = '';
+        let _piActiveDisplayName = '';
+        let _piStatusIndex = 0;
+        let _piUploadHistoryLogged = false;
+
+        const PI_EXTRACT_STATUS_MESSAGES = [
+            'Reading Product Information...',
+            'Extracting Product Details...',
+            'Understanding indication...',
+            'Identifying Drug Class...',
+            'Analyzing therapy area...',
+            'Preparing forecast context...',
+            'Validating extracted information...',
+        ];
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text == null ? '' : String(text);
+            return d.innerHTML;
+        }
+
+        function buildCopilotStepsHtml(messages, activeIndex) {
+            activeIndex = Math.max(0, Math.min(activeIndex, messages.length - 1));
+            return messages.slice(0, activeIndex + 1).map((msg, i) => {
+                const isActive = i === activeIndex;
+                const isDone = i < activeIndex;
+                const cls = isDone ? 'pi-copilot-step-done' : 'pi-copilot-step-active';
+                const icon = isDone
+                    ? '<span class="pi-copilot-step-icon">✓</span>'
+                    : '<span class="pi-copilot-step-icon"><span class="pi-copilot-step-spin" aria-hidden="true"></span></span>';
+                return (
+                    '<div class="pi-copilot-step ' + cls + '">' +
+                    icon +
+                    '<span>' + escapeHtml(msg) + '</span>' +
+                    '</div>'
+                );
+            }).join('');
+        }
+
+        function buildCopilotStepsAllDoneHtml(messages) {
+            return messages.map((msg) => (
+                '<div class="pi-copilot-step pi-copilot-step-done">' +
+                '<span class="pi-copilot-step-icon">✓</span>' +
+                '<span>' + escapeHtml(msg) + '</span>' +
+                '</div>'
+            )).join('');
+        }
+
+        function buildCopilotProcessShell(title, extraHtml, stepsHtml) {
+            return (
+                '<div class="pi-copilot-process-card">' +
+                '<div class="pi-copilot-process-head">' +
+                '<span class="pi-copilot-brain" aria-hidden="true">🧠</span>' +
+                '<span class="pi-copilot-process-title">' + escapeHtml(title) + '</span>' +
+                '</div>' +
+                (extraHtml || '') +
+                '<div class="pi-copilot-steps">' + stepsHtml + '</div>' +
+                '</div>'
+            );
+        }
+
+        function buildPiProcessingCardHtml(filename, activeIndex) {
+            activeIndex = Math.max(0, Math.min(activeIndex, PI_EXTRACT_STATUS_MESSAGES.length - 1));
+            const fileLine = '<div class="pi-copilot-process-file">📄 ' + escapeHtml(filename) + '</div>';
+            return buildCopilotProcessShell(
+                'Preparing your forecast...',
+                fileLine,
+                buildCopilotStepsHtml(PI_EXTRACT_STATUS_MESSAGES, activeIndex)
+            );
+        }
+
+        function addPiBotProgressCard(html) {
+            const box = document.getElementById('messages');
+            const row = document.createElement('div');
+            row.className = 'msg-row bot';
+
+            const avatar = document.createElement('div');
+            avatar.className = 'msg-avatar';
+            avatar.innerHTML = COPILOT_AVATAR_ICON;
+
+            const content = document.createElement('div');
+            content.className = 'msg-content';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'msg bot pi-copilot-progress-bubble';
+            bubble.innerHTML = html;
+
+            const time = document.createElement('div');
+            time.className = 'msg-time';
+            time.textContent = nowTime();
+
+            content.appendChild(bubble);
+            content.appendChild(time);
+            row.appendChild(avatar);
+            row.appendChild(content);
+            box.appendChild(row);
+            box.scrollTop = box.scrollHeight;
+            return {
+                updateHtml(nextHtml) {
+                    bubble.innerHTML = nextHtml;
+                    box.scrollTop = box.scrollHeight;
+                },
+                update(text) {
+                    bubble.className = 'msg bot';
+                    bubble.innerHTML = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+                    box.scrollTop = box.scrollHeight;
+                },
+                remove() { row.remove(); },
+            };
+        }
+
+        function showPiProcessingCard(displayName) {
+            _piActiveDisplayName = displayName;
+            const html = buildPiProcessingCardHtml(displayName, _piStatusIndex);
+            if (_piCopilotProgress) {
+                _piCopilotProgress.updateHtml(html);
+                return;
+            }
+            _piStatusIndex = 0;
+            _piCopilotProgress = addPiBotProgressCard(
+                buildPiProcessingCardHtml(displayName, 0)
+            );
+            if (_piProgressTimer) {
+                clearInterval(_piProgressTimer);
+                _piProgressTimer = null;
+            }
+            _piProgressTimer = setInterval(() => {
+                if (!_piCopilotProgress) return;
+                if (_piStatusIndex >= PI_EXTRACT_STATUS_MESSAGES.length - 1) return;
+                _piStatusIndex += 1;
+                _piCopilotProgress.updateHtml(
+                    buildPiProcessingCardHtml(_piActiveDisplayName, _piStatusIndex)
+                );
+            }, 1500);
+        }
+
+        function startPiCopilotProcessing(displayName) {
+            if (!displayName) return;
+            if (_piActiveDisplayName !== displayName) _piStatusIndex = 0;
+            dismissCopilotOnboarding();
+            ensureCopilotOpen();
+            if (!_piUploadHistoryLogged) {
+                conversationHistory.push({ role: 'user', content: `Uploaded PI document: ${displayName}` });
+                _piUploadHistoryLogged = true;
+            }
+            showPiProcessingCard(displayName);
+        }
 
         function endPiCopilotProgress() {
             if (_piProgressTimer) {
@@ -550,6 +696,9 @@
                 _piCopilotProgress.remove();
                 _piCopilotProgress = null;
             }
+            _piUploadHistoryLogged = false;
+            _piActiveDisplayName = '';
+            _piStatusIndex = 0;
         }
 
         function finishPiCopilotProgressMessage(msg) {
@@ -560,6 +709,9 @@
             if (_piCopilotProgress) {
                 _piCopilotProgress.update(msg);
                 _piCopilotProgress = null;
+                _piUploadHistoryLogged = false;
+                _piActiveDisplayName = '';
+                _piStatusIndex = 0;
                 return;
             }
             addMsg(msg, 'bot');
@@ -574,23 +726,12 @@
             }
         }
 
+        function notifyCopilotPiUploadStarted(displayName) {
+            startPiCopilotProcessing(displayName);
+        }
+
         function notifyCopilotPiProcessing(displayName) {
-            if (!displayName) return;
-            dismissCopilotOnboarding();
-            ensureCopilotOpen();
-            addMsg(`📎 **${displayName}**`, 'user');
-            conversationHistory.push({ role: 'user', content: `Uploaded PI document: ${displayName}` });
-            endPiCopilotProgress();
-            _piCopilotProgress = addLiveChatMsg('Reading your prescribing information…');
-            let tick = 0;
-            _piProgressTimer = setInterval(() => {
-                if (!_piCopilotProgress) return;
-                tick += 1;
-                const suffix = tick >= 3
-                    ? '\n\n_Still working — large documents can take up to a minute._'
-                    : '';
-                _piCopilotProgress.update('Reading your prescribing information…' + suffix);
-            }, 12000);
+            startPiCopilotProcessing(displayName);
         }
 
         function notifyCopilotPiError(message) {
@@ -660,14 +801,17 @@
             const form = getStage1FormState();
             syncChatStepFromForm(form);
             const missing = getMissingStage1Steps(form);
-            const sourceName = options.sourceName || 'your document';
             const summary = buildStage1ExtractedSummary(form);
 
-            let msg = `✓ I read **${sourceName}**.`;
+            let msg = '✓ **Product Information extracted successfully.**';
             let qr = [];
             if (summary) msg += `\n\n${summary}`;
             if (missing.length === 0) {
-                msg = buildStage1ConfirmMessage(form);
+                const confirmBody = buildStage1ConfirmMessage(form).replace(
+                    '✓ **All product details captured!** Please review and confirm:\n\n',
+                    ''
+                );
+                msg += `\n\nPlease review and confirm:\n\n${confirmBody}`;
                 qr = ['✓ Confirm & Proceed', 'Edit Details'];
                 validateProductFields();
             } else {
@@ -5366,21 +5510,79 @@
         }
 
         let _aiRecCopilotProgress = null;
+        let _aiRecProgressTimer = null;
+        let _aiRecStatusIndex = 0;
+        let _aiRecStepMessages = [];
+
+        function getAiRecStepMessages(hasPiSummary) {
+            const steps = ['Reviewing product details...'];
+            if (hasPiSummary) steps.push('Analysing uploaded PI summary...');
+            steps.push('Reading forecast flow rules...');
+            steps.push('Defining recommended parameters...');
+            return steps;
+        }
+
+        function buildAiRecProcessingCardHtml(activeIndex, stepMessages) {
+            return buildCopilotProcessShell(
+                'Building your AI recommendation...',
+                '',
+                buildCopilotStepsHtml(stepMessages, activeIndex)
+            );
+        }
+
+        function startAiRecCopilotProgress(hasPiSummary) {
+            endAiRecCopilotProgress();
+            _aiRecStepMessages = getAiRecStepMessages(hasPiSummary);
+            _aiRecStatusIndex = 0;
+            _aiRecCopilotProgress = addPiBotProgressCard(
+                buildAiRecProcessingCardHtml(0, _aiRecStepMessages)
+            );
+            _aiRecProgressTimer = setInterval(() => {
+                if (!_aiRecCopilotProgress) return;
+                if (_aiRecStatusIndex >= _aiRecStepMessages.length - 1) return;
+                _aiRecStatusIndex += 1;
+                _aiRecCopilotProgress.updateHtml(
+                    buildAiRecProcessingCardHtml(_aiRecStatusIndex, _aiRecStepMessages)
+                );
+            }, 1200);
+        }
 
         function endAiRecCopilotProgress() {
+            if (_aiRecProgressTimer) {
+                clearInterval(_aiRecProgressTimer);
+                _aiRecProgressTimer = null;
+            }
             if (_aiRecCopilotProgress) {
                 _aiRecCopilotProgress.remove();
                 _aiRecCopilotProgress = null;
             }
+            _aiRecStatusIndex = 0;
+            _aiRecStepMessages = [];
         }
 
-        function buildPiContextCopilotNote(data) {
-            if (!data || !data.used_pi_context) return '';
-            const preview = (data.pi_context_preview || '').trim();
-            if (preview) {
-                return `📋 **Used your uploaded PI summary:**\n\n_${preview}_\n\n`;
+        function finishAiRecCopilotProgress(msg) {
+            if (_aiRecProgressTimer) {
+                clearInterval(_aiRecProgressTimer);
+                _aiRecProgressTimer = null;
             }
-            return '📋 **Used your uploaded PI summary** together with current product details and playbook rules.\n\n';
+            const steps = _aiRecStepMessages.length ? _aiRecStepMessages : getAiRecStepMessages(false);
+            const progress = _aiRecCopilotProgress;
+            _aiRecCopilotProgress = null;
+            _aiRecStatusIndex = 0;
+            _aiRecStepMessages = [];
+
+            if (progress && steps.length) {
+                progress.updateHtml(buildCopilotProcessShell(
+                    'Building your AI recommendation...',
+                    '',
+                    buildCopilotStepsAllDoneHtml(steps)
+                ));
+                setTimeout(() => progress.update(msg), 400);
+            } else if (progress) {
+                progress.update(msg);
+            } else {
+                addMsg(msg, 'bot');
+            }
         }
 
         // User-triggered (button or chat command) — fetches the recommendation and
@@ -5403,12 +5605,7 @@
             dismissCopilotOnboarding();
             addMsg('✨ **Get AI Recommendation**', 'user');
             conversationHistory.push({ role: 'user', content: 'Get AI Recommendation' });
-            endAiRecCopilotProgress();
-            _aiRecCopilotProgress = addLiveChatMsg(
-                sessionId
-                    ? 'Analysing forecast flow using your product details, uploaded PI summary, and playbook rules…'
-                    : 'Analysing forecast flow using your product details and playbook rules…'
-            );
+            startAiRecCopilotProgress(!!sessionId);
 
             // Show loading state
             aiRecLoading = true;
@@ -5453,19 +5650,14 @@
                 }
                 aiRecBulletsPlain = bullets.map(b => (b || '').replace(/\*\*/g, ''));
 
-                let msg = buildPiContextCopilotNote(data) + buildRecommendationHtml(summary, bullets);
+                let msg = buildRecommendationHtml(summary, bullets);
                 if (aiRecParams && aiRecParams.length) {
                     msg += buildParamChipsHtml(aiRecParams);
                 }
 
-                if (_aiRecCopilotProgress) {
-                    _aiRecCopilotProgress.update(msg);
-                    _aiRecCopilotProgress = null;
-                } else {
-                    addMsg(msg, 'bot');
-                }
+                finishAiRecCopilotProgress(msg);
                 setQuickReplies(['Apply Recommendation', 'Generate Now']);
-                const plainMsg = (buildPiContextCopilotNote(data) + summary + '\n' + bullets.join('\n')).replace(/\*\*/g, '');
+                const plainMsg = (summary + '\n' + bullets.join('\n')).replace(/\*\*/g, '');
                 conversationHistory.push({ role: 'assistant', content: plainMsg });
 
             } catch (err) {
@@ -5802,6 +5994,7 @@
         window.validateProductFields = validateProductFields;
         window.populateProductInfoFields = populateProductInfoFields;
         window.handlePiExtractCopilotSuccess = handlePiExtractCopilotSuccess;
+        window.notifyCopilotPiUploadStarted = notifyCopilotPiUploadStarted;
         window.notifyCopilotPiProcessing = notifyCopilotPiProcessing;
         window.notifyCopilotPiError = notifyCopilotPiError;
         window.toggleFlowSection = toggleFlowSection;

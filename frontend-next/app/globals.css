@@ -1981,6 +1981,95 @@ canvas { max-width: 100%; height: auto !important; }
     30% { transform: translateY(-6px) }
 }
 
+/* PI upload — stacked step boxes during copilot extraction */
+.pi-copilot-process-card { min-width: 0; }
+.pi-copilot-process-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.35;
+}
+.pi-copilot-brain {
+    display: inline-block;
+    font-size: 15px;
+    line-height: 1;
+    animation: pi-brain-pulse 1.6s ease-in-out infinite;
+}
+@keyframes pi-brain-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.72; transform: scale(1.06); }
+}
+.pi-copilot-process-file {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--primary);
+    margin-top: 8px;
+    padding: 6px 10px;
+    border-radius: var(--r8);
+    border: 1px solid rgba(26, 79, 114, .18);
+    background: rgba(26, 79, 114, .05);
+    word-break: break-word;
+}
+.pi-copilot-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
+}
+.pi-copilot-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: var(--r8);
+    border: 1px solid var(--card-bdr);
+    font-size: 11.5px;
+    line-height: 1.3;
+    background: var(--surface);
+    color: var(--text-2);
+    animation: pi-step-in .28s ease-out;
+}
+@keyframes pi-step-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.pi-copilot-step-active {
+    border-color: rgba(201, 146, 42, .5);
+    background: rgba(201, 146, 42, .1);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: 0 0 0 1px rgba(201, 146, 42, .12);
+}
+.pi-copilot-step-done {
+    border-color: rgba(26, 79, 114, .22);
+    background: rgba(26, 79, 114, .06);
+    color: var(--text-2);
+    font-weight: 500;
+}
+.pi-copilot-step-icon {
+    flex-shrink: 0;
+    width: 14px;
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #C9922A;
+    line-height: 1;
+}
+.pi-copilot-step-done .pi-copilot-step-icon { color: var(--primary); }
+.pi-copilot-step-spin {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(201, 146, 42, .28);
+    border-top-color: #C9922A;
+    border-radius: 50%;
+    animation: spin .75s linear infinite;
+}
+.msg.bot.pi-copilot-progress-bubble { padding: 11px 13px; }
+
 /* ── Template Presets Bar ── */
 .presets-bar {
     background: rgba(26,79,114,0.04);
