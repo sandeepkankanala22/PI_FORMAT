@@ -24,8 +24,8 @@ def _char_limit() -> int:
 
 
 def extract_text_from_url(url: str, char_limit: int | None = None) -> str:
-    """Fetch URL and return clean readable text."""
-    limit = char_limit if char_limit is not None else _char_limit()
+    """Fetch URL and return readable text (trimming happens in prepare_pi_text_for_llm)."""
+    _ = char_limit  # retained for API compatibility; LLM char limit applied downstream
     url = (url or "").strip()
     if not url:
         raise UrlFetchError("URL is required.")
@@ -66,8 +66,8 @@ def extract_text_from_url(url: str, char_limit: int | None = None) -> str:
             "No readable text found at URL. The page may require JavaScript to render."
         )
 
-    logger.info("URL extraction completed: %d chars", min(len(text), limit))
-    return text[:limit]
+    logger.info("URL extraction completed: %d chars (prepare/chunk will trim for LLM)", len(text))
+    return text
 
 
 def _extract_html(raw_html: str) -> str:

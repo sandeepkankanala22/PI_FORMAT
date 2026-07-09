@@ -18,7 +18,7 @@ from backend.services.product_info.field_mapping import map_to_form_fields
 from backend.services.product_info.field_summarization import needs_indication_refinement
 from backend.services.product_info.json_validation import parse_json_from_response, validate_product_info_json
 from backend.services.product_info.text_chunking import chunk_text_if_needed
-from backend.services.product_info.text_cleaning import clean_text
+from backend.services.product_info.text_cleaning import clean_text, prepare_pi_text_for_llm
 
 client = TestClient(app)
 
@@ -26,6 +26,23 @@ client = TestClient(app)
 def test_service_modules() -> None:
     raw = "Page 1\n\nProduct: TUB-040\nIndication: NSCLC\n\nPage 2\n\nProduct: TUB-040\n"
     assert "TUB-040" in clean_text(raw)
+
+    noisy = (
+        "Product Name: TUB-040\n"
+        "Indication: NSCLC\n"
+        "https://example.com/label.pdf\n"
+        "REFERENCES\n"
+        "Smith et al. 2020 https://doi.org/10.0000/example\n"
+        "ADVERSE REACTIONS\n"
+        "nausea vomiting fatigue\n"
+        "Mechanism of Action: TOP1 inhibitor\n"
+    )
+    prepared = prepare_pi_text_for_llm(noisy)
+    assert "TUB-040" in prepared
+    assert "NSCLC" in prepared
+    assert "TOP1 inhibitor" in prepared
+    assert "https://" not in prepared
+    assert len(prepared) < len(noisy)
 
     long_text = "indication " * 5000
     assert len(chunk_text_if_needed(long_text, char_limit=1000)) <= 1000
@@ -95,6 +112,12 @@ def test_api_endpoints() -> None:
 
     r = client.get("/health")
     assert r.status_code == 200
+
+    r = client.post(
+        "/api/product-info/extract",
+        json={"url": "not-a-url"},
+    )
+    assert r.status_code == 400
 
 
 def test_live_docx_extract() -> None:

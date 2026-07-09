@@ -1033,6 +1033,37 @@ h2.card-title { font-size: 18px; }
     color: #A0AEC0;
 }
 
+.pi-url-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin: -8px 0 16px;
+}
+.pi-url-input {
+    flex: 1;
+    min-width: 0;
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid var(--card-bdr);
+    border-radius: var(--r8);
+    font-size: 13px;
+    line-height: 1.35;
+    color: var(--text);
+    background: #fff;
+    box-sizing: border-box;
+}
+.pi-url-input:focus {
+    outline: none;
+    border-color: rgba(26, 79, 114, .45);
+    box-shadow: 0 0 0 3px rgba(26, 79, 114, .08);
+}
+.pi-url-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 10px 14px;
+    font-size: 12px;
+}
+
 .upload-dropzone:hover,
 .upload-dropzone.drag-active {
     border-color: var(--primary);

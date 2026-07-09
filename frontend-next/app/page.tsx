@@ -1,9 +1,7 @@
 'use client'
 import Script from 'next/script'
-import { useRef } from 'react'
 
 export default function Home() {
-  const urlExtractTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setProcessingState = (active: boolean, message?: string) => {
     const labelSpan = document.getElementById('referenceFileLabel');
@@ -53,6 +51,22 @@ export default function Home() {
     }
   };
 
+  const getSessionId = () => {
+    if (typeof (window as any).getForecastSessionId === 'function') {
+      return (window as any).getForecastSessionId() || '';
+    }
+    return '';
+  };
+
+  const isValidHttpUrl = (raw: string) => {
+    try {
+      const parsed = new URL(raw.trim());
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  };
+
   const handleExtractionError = (message: string) => {
     const labelSpan = document.getElementById('referenceFileLabel');
     const badge = document.getElementById('uploadDropzoneBadge');
@@ -68,6 +82,9 @@ export default function Home() {
     if (spinner) spinner.style.display = 'none';
     dropzone?.classList.remove('has-file');
     (window as any).uploadedRefFile = null;
+    if (typeof (window as any).notifyCopilotPiError === 'function') {
+      (window as any).notifyCopilotPiError(message);
+    }
   };
 
   const runExtraction = async (init: RequestInit, displayName: string) => {
@@ -111,31 +128,41 @@ export default function Home() {
     }
     const formData = new FormData();
     formData.append('file', file);
+    const sessionId = getSessionId();
+    if (sessionId) formData.append('session_id', sessionId);
     await runExtraction({ method: 'POST', body: formData }, file.name);
   };
 
   const extractFromUrl = async (rawUrl: string) => {
     const url = rawUrl.trim();
     if (!url) return;
+    if (!isValidHttpUrl(url)) {
+      handleExtractionError('Enter a valid http or https URL.');
+      return;
+    }
     const fileInput = document.getElementById('referenceFile') as HTMLInputElement | null;
     if (fileInput) fileInput.value = '';
     const displayName = url.length > 48 ? url.slice(0, 45) + '...' : url;
+    setProcessingState(true, 'Fetching URL...');
     if (typeof (window as any).notifyCopilotPiUploadStarted === 'function') {
-      (window as any).notifyCopilotPiUploadStarted(displayName, 'Fetching document...');
+      (window as any).notifyCopilotPiUploadStarted(displayName, 'Fetching URL...');
     }
+    const payload: Record<string, string> = { url };
+    const sessionId = getSessionId();
+    if (sessionId) payload.session_id = sessionId;
     await runExtraction(
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url })
+        body: JSON.stringify(payload),
       },
-      url.length > 48 ? url.slice(0, 45) + '...' : url
+      displayName
     );
   };
 
-  const scheduleUrlExtraction = (rawUrl: string) => {
-    if (urlExtractTimer.current) clearTimeout(urlExtractTimer.current);
-    urlExtractTimer.current = setTimeout(() => extractFromUrl(rawUrl), 400);
+  const handleUrlExtractClick = () => {
+    const urlInput = document.getElementById('piSourceUrl') as HTMLInputElement | null;
+    if (urlInput) extractFromUrl(urlInput.value);
   };
 
   return (
@@ -201,7 +228,7 @@ export default function Home() {
             <div className="card pi-step-card" id="productInfoCard">
               <div className="pi-step-header">
                 <h2 className="card-title">Product Information</h2>
-                <p className="pi-step-hint">Fill in the details below, or upload a Prescribing Information (PI) document and we'll extract them for you.</p>
+                <p className="pi-step-hint">Fill in the details below, or upload a PI document / paste a URL — we&apos;ll extract product details into Stage 1 for you.</p>
               </div>
 
               <label
@@ -237,20 +264,23 @@ export default function Home() {
                 onChange={(e) => uploadReferenceFile(e.target.files?.[0])}
               />
 
-              <input
-                type="url"
-                id="piSourceUrl"
-                className="field-chip-input"
-                placeholder="Or paste a URL"
-                style={{ width: '100%', marginTop: '10px', boxSizing: 'border-box' }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    extractFromUrl((e.target as HTMLInputElement).value);
-                  }
-                }}
-                onBlur={(e) => scheduleUrlExtraction(e.target.value)}
-              />
+              <div className="pi-url-row">
+                <input
+                  type="url"
+                  id="piSourceUrl"
+                  className="pi-url-input"
+                  placeholder="Or paste a PI / product page URL (https://...)"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleUrlExtractClick();
+                    }
+                  }}
+                />
+                <button type="button" className="btn btn-secondary pi-url-btn" onClick={handleUrlExtractClick}>
+                  Extract from URL
+                </button>
+              </div>
 
               <div className="or-divider"><span>OR</span></div>
               <div className="manual-entry-label">Manual Entry</div>
@@ -991,7 +1021,7 @@ export default function Home() {
       {/* CDN Scripts */}
       <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" strategy="afterInteractive" />
       <Script src="https://cdn.jsdelivr.net/npm/hyperformula@2.6.0/dist/hyperformula.full.min.js" strategy="afterInteractive" />
-      <Script src="/js/forecast.js?v=32" strategy="afterInteractive" />
+      <Script src="/js/forecast.js?v=33" strategy="afterInteractive" />
     </>
   )
 }

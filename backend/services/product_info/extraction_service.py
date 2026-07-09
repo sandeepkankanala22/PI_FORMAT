@@ -15,7 +15,7 @@ from .field_summarization import needs_display_field_summarization, summarize_di
 from .json_validation import parse_json_from_response, validate_product_info_json
 from .prompt_builder import build_user_message, get_system_prompt
 from .text_chunking import chunk_text_if_needed
-from .text_cleaning import clean_text
+from .text_cleaning import prepare_pi_text_for_llm
 from .url_extraction import extract_text_from_url
 
 logger = logging.getLogger("ProductInfoExtract")
@@ -55,7 +55,7 @@ class ExtractionService:
         return self._process_text(raw_text, source_name=url.strip())
 
     def _process_text(self, raw_text: str, source_name: str) -> ExtractionResult:
-        cleaned = clean_text(raw_text)
+        cleaned = prepare_pi_text_for_llm(raw_text)
         if not cleaned:
             from .errors import EmptyDocument
 

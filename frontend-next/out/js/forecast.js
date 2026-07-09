@@ -142,6 +142,21 @@
                     document.getElementById('referenceFile')?.click();
                 };
 
+                const urlBtn = document.createElement('button');
+                urlBtn.type = 'button';
+                urlBtn.className = 'mode-choice-btn';
+                urlBtn.innerHTML = MODE_CHOICE_ICONS.upload + '<span>Paste PI URL</span>';
+                urlBtn.onclick = () => {
+                    dismissCopilotOnboarding();
+                    const card = document.getElementById('productInfoCard');
+                    const urlInput = document.getElementById('piSourceUrl');
+                    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    if (urlInput) {
+                        urlInput.focus();
+                        urlInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                };
+
                 // 4. Guided step-by-step Q&A — the safe fallback.
                 const stepBtn = document.createElement('button');
                 stepBtn.type = 'button';
@@ -155,6 +170,7 @@
                 card.appendChild(exampleRow);
                 card.appendChild(describeBtn);
                 card.appendChild(uploadBtn);
+                card.appendChild(urlBtn);
                 card.appendChild(stepBtn);
                 bubble.appendChild(card);
 
