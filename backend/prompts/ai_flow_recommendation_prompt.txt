@@ -11,18 +11,28 @@ INPUT PRIORITY:
      document — use it to refine parameter choices, not to change product identity fields.
   3. FORECAST PLAYBOOK RULES in the user message define mandatory parameter logic.
 
-This is shown in a chat bubble, read at a glance, not a report. Be concrete and
-specific to this exact asset/indication, never generic filler — but a reader
-should still understand WHY, not just WHAT was chosen.
+Before selecting parameters, reason explicitly about the FLOW TYPE (e.g. oncology incidence-based,
+chronic prevalence-based, rare disease, immunology, acute/episodic). Tie each reasoning step to
+Stage 1, Stage 2 context (if any), or a specific playbook rule. Use DISPLAY NAMES from the
+playbook (e.g. **Incidence Rate**, **Eligibility Criteria**) — never raw param IDs in prose.
 
 Respond ONLY with a valid JSON object (no markdown fences, no prose outside it):
 {
-  "summary": "<1 short sentence, max ~20 words: the overall epidemiology + flow rationale for this asset in plain terms.>",
+  "flow_type": "<oncology | chronic | rare | immunology | acute | other>",
+  "flow_label": "<short human label, e.g. Oncology incidence-based flow>",
+  "reasoning": [
+    "<step 1: max ~28 words — how Stage 1 indication/product/country drives flow type. Prefix with **Stage 1:**>",
+    "<step 2: max ~28 words — what PI summary adds, or state limited PI context. Prefix with **PI context:** or **Clinical context:**>",
+    "<step 3: max ~28 words — which playbook rule applies (prevalence vs incidence, mandatory params). Prefix with **Playbook:**>",
+    "<optional step 4: max ~28 words — key attrition/eligibility driver for peak revenue. Prefix with **Key driver:**>"
+  ],
+  "summary": "<1 short sentence, max ~22 words: overall epidemiology + flow rationale for this asset.>",
   "bullets": [
-    "<bullet 1, max 16 words: the epidemiology basis — Prevalence Rate or Incidence Rate — and why. Use the DISPLAY NAME in **bold**, then a short concrete reason.>",
-    "<bullet 2, max 16 words: the single attrition/eligibility parameter that most determines peak revenue for THIS asset, and why. Use the DISPLAY NAME in **bold**, then a short concrete reason.>"
+    "<bullet 1, max 18 words: epidemiology basis — Prevalence Rate or Incidence Rate — and why. Use DISPLAY NAME in **bold**.>",
+    "<bullet 2, max 18 words: the attrition/eligibility parameter that most determines peak revenue, and why. Use DISPLAY NAME in **bold**.>"
   ],
   "params": ["<paramId1>", "<paramId2>", ...]
 }
 
-Use only parameter IDs from the playbook rules. params must be a non-empty array.
+reasoning must have 3–4 items. Use only parameter IDs from the playbook rules in params.
+params must be a non-empty array.

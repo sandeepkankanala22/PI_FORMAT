@@ -45,7 +45,9 @@ def build_recommend_user_message(
         f"{stage2_block}\n\n"
         "FORECAST PLAYBOOK RULES:\n"
         f"{flow_rules.strip()}\n\n"
-        "Recommend the optimal set of forecast flow parameters for this asset."
+        "Recommend the optimal forecast flow for this asset. First determine the flow type "
+        "(oncology incidence, chronic prevalence, rare disease, etc.), explain your reasoning "
+        "step by step, then return the parameter list."
     )
 
 
@@ -64,7 +66,7 @@ def run_recommendation(
     stage2_context: Optional[str] = None,
     *,
     temperature: float = 0.3,
-    max_tokens: int = 700,
+    max_tokens: int = 1100,
 ) -> Dict[str, Any]:
     logger.info(
         "AI Recommendation started: indication=%s session_context=%s",

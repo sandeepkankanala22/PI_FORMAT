@@ -49,9 +49,15 @@ def test_build_recommend_user_message_without_stage2() -> None:
 
 
 def test_parse_recommend_response_strips_fences() -> None:
-    raw = '```json\n{"summary": "ok", "bullets": ["a"], "params": ["incidence"]}\n```'
+    raw = (
+        '```json\n{"flow_type": "oncology", "flow_label": "Oncology flow", '
+        '"reasoning": ["**Stage 1:** NSCLC"], "summary": "ok", '
+        '"bullets": ["a"], "params": ["incidence"]}\n```'
+    )
     parsed = parse_recommend_response(raw)
     assert parsed["summary"] == "ok"
+    assert parsed["flow_type"] == "oncology"
+    assert parsed["reasoning"] == ["**Stage 1:** NSCLC"]
     assert parsed["params"] == ["incidence"]
 
 
@@ -62,6 +68,12 @@ def test_run_recommendation_uses_bedrock_mock() -> None:
         captured.update(kwargs)
         return {
             "content": json.dumps({
+                "flow_type": "oncology",
+                "flow_label": "Oncology incidence-based flow",
+                "reasoning": [
+                    "**Stage 1:** NSCLC requires incidence modelling.",
+                    "**Playbook:** Use incidence, not prevalence.",
+                ],
                 "summary": "Oncology incidence model",
                 "bullets": ["**Incidence Rate** for NSCLC", "**Eligibility Criteria** for biomarker"],
                 "params": ["incidence", "diagnosisRate", "eligibilityCriteria", "classShare", "peakProductShare", "annualCostPerPatient", "discount"],
@@ -74,6 +86,8 @@ def test_run_recommendation_uses_bedrock_mock() -> None:
     result = run_recommendation(fake_invoke, stage1, "Stage 2 oncology context")
     assert "params" in result
     assert "incidence" in result["params"]
+    assert result.get("flow_label")
+    assert isinstance(result.get("reasoning"), list)
     assert "system_prompt" in captured or captured.get("system_prompt") is not None or "messages" in captured
     user_content = captured["messages"][0]["content"]
     assert "DrugX" in user_content

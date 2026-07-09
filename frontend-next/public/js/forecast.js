@@ -246,6 +246,41 @@
             box.scrollTop = box.scrollHeight;
         }
 
+        function addHtmlMsg(html, role) {
+            const box = document.getElementById('messages');
+            const row = document.createElement('div');
+            row.className = 'msg-row ' + role;
+
+            const avatar = document.createElement('div');
+            avatar.className = 'msg-avatar';
+            if (role === 'user') avatar.textContent = '👤';
+            else avatar.innerHTML = COPILOT_AVATAR_ICON;
+
+            const content = document.createElement('div');
+            content.className = 'msg-content';
+
+            const bubble = document.createElement('div');
+            bubble.className = 'msg ' + role;
+            bubble.innerHTML = html;
+
+            const time = document.createElement('div');
+            time.className = 'msg-time' + (role === 'user' ? ' right' : '');
+            time.textContent = nowTime();
+
+            content.appendChild(bubble);
+            content.appendChild(time);
+
+            if (role === 'user') {
+                row.appendChild(content);
+                row.appendChild(avatar);
+            } else {
+                row.appendChild(avatar);
+                row.appendChild(content);
+            }
+            box.appendChild(row);
+            box.scrollTop = box.scrollHeight;
+        }
+
         function showTyping(cb) {
             const box = document.getElementById('messages');
             const row = document.createElement('div');
@@ -637,7 +672,8 @@
             box.appendChild(row);
             box.scrollTop = box.scrollHeight;
             return {
-                updateHtml(nextHtml) {
+                updateHtml(nextHtml, bubbleClass) {
+                    if (bubbleClass) bubble.className = bubbleClass;
                     bubble.innerHTML = nextHtml;
                     box.scrollTop = box.scrollHeight;
                 },
@@ -5422,53 +5458,124 @@
         // names (not raw param IDs) since this text is written by hand.
         function buildFallbackRec(indication) {
             const ind = (indication || '').toLowerCase();
-            let params, summary, bullets;
+            let params, summary, bullets, flow_type, flow_label, reasoning;
 
             if (ind.includes('oncol') || ind.includes('cancer') || ind.includes('tumour') || ind.includes('tumor')) {
                 params = ['incidence', 'diagnosisRate', 'eligibilityCriteria', 'treatmentRate', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'oncology';
+                flow_label = 'Oncology incidence-based flow';
                 summary = 'Oncology is modelled on incidence, with biomarker-based eligibility as the key attrition filter.';
+                reasoning = [
+                    '**Stage 1:** Oncology indication → playbook requires **Incidence Rate**, not **Prevalence Rate**.',
+                    '**PI context:** Biomarker or line-of-therapy gates usually define the treatable patient pool.',
+                    '**Playbook:** Include **Diagnosis Rate**, **Eligibility Criteria**, and **Treatment Rate**; exclude prevalence.',
+                    '**Key driver:** **Eligibility Criteria** most limits addressable patients and peak revenue.',
+                ];
                 bullets = [
                     '**Incidence Rate** — acute disease, modelled on new diagnoses per year, not existing stock.',
                     '**Eligibility Criteria** (biomarker positivity) is the biggest driver of addressable patient pool size.',
                 ];
             } else if (ind.includes('rare') || ind.includes('orphan')) {
                 params = ['prevalence', 'diagnosisRate', 'eligibilityCriteria', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'rare';
+                flow_label = 'Rare disease prevalence-based flow';
                 summary = 'Rare disease is modelled on prevalence, with diagnosis delay as the dominant patient-flow risk.';
+                reasoning = [
+                    '**Stage 1:** Rare/orphan indication → small prevalent pool, not incident oncology math.',
+                    '**Clinical context:** Genetic or phenotypic confirmation often gates treatable patients.',
+                    '**Playbook:** Use **Prevalence Rate** plus **Eligibility Criteria**; diagnosis delay is critical.',
+                    '**Key driver:** **Diagnosis Rate** is often the main bottleneck in rare disease funnels.',
+                ];
                 bullets = [
                     '**Prevalence Rate** — small, well-characterised patient stock, not new-case volume.',
                     '**Diagnosis Rate** is the key bottleneck — the diagnostic journey is often years long.',
                 ];
             } else if (ind.includes('alzheimer') || ind.includes('dementia')) {
                 params = ['prevalence', 'diagnosisRate', 'eligibilityCriteria', 'treatmentRate', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'chronic';
+                flow_label = 'Neurology prevalence-based flow';
                 summary = "Alzheimer's is a large chronic prevalence pool, gated hard by biomarker-based treatment eligibility.";
+                reasoning = [
+                    '**Stage 1:** Large chronic neurology pool → **Prevalence Rate** is the epidemiology base.',
+                    '**PI context:** Disease-modifying therapy often requires biomarker confirmation.',
+                    '**Playbook:** Neurology with biomarker gate → include **Eligibility Criteria**.',
+                    '**Key driver:** Eligibility excludes most diagnosed patients from therapy.',
+                ];
                 bullets = [
                     '**Prevalence Rate** — large, chronic pool of existing patients rather than new diagnoses.',
                     '**Eligibility Criteria** (biomarker confirmation) excludes most diagnosed patients from disease-modifying therapy.',
                 ];
             } else if (ind.includes('obes') || ind.includes('weight loss') || ind.includes('bmi')) {
                 params = ['prevalence', 'eligibilityCriteria', 'treatmentRate', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'chronic';
+                flow_label = 'Chronic prevalence-based flow';
                 summary = 'Obesity has a very large prevalent population, with treatment access the biggest swing factor.';
+                reasoning = [
+                    '**Stage 1:** Very large chronic prevalent population → **Prevalence Rate** base.',
+                    '**Clinical context:** BMI or comorbidity thresholds define who can receive therapy.',
+                    '**Playbook:** Chronic disease — prevalence plus access filters; treatment rate matters.',
+                    '**Key driver:** **Treatment Rate** swings with payer prior-auth and step therapy.',
+                ];
                 bullets = [
                     '**Prevalence Rate** — very large, well-established population base across most markets.',
                     '**Treatment Rate** swings most — payer prior-authorisation and step-therapy gate real-world access.',
                 ];
             } else if (ind.includes('diabet') || ind.includes('t2d') || ind.includes('type 2')) {
                 params = ['prevalence', 'diagnosisRate', 'treatmentRate', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'chronic';
+                flow_label = 'Chronic prevalence-based flow';
                 summary = 'Type 2 Diabetes is a large chronic prevalence pool where treatment timing drives uptake.';
+                reasoning = [
+                    '**Stage 1:** T2D is a stable chronic prevalent condition.',
+                    '**Clinical context:** Most patients are diagnosed; intensification timing drives uptake.',
+                    '**Playbook:** Chronic disease template — **Prevalence Rate** plus **Treatment Rate**.',
+                    '**Key driver:** **Treatment Rate** varies by market and line-of-therapy positioning.',
+                ];
                 bullets = [
                     '**Prevalence Rate** — large, well-characterised chronic patient pool, stable year over year.',
                     '**Treatment Rate** matters most — intensification timing to newer agents varies widely by market.',
                 ];
+            } else if (ind.includes('psoriasis') || ind.includes('psoriatic') || ind.includes('immunolog') || ind.includes('ibd') || ind.includes('crohn')) {
+                params = ['prevalence', 'diagnosisRate', 'severity', 'treatmentRate', 'eligibilityCriteria', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'immunology';
+                flow_label = 'Immunology prevalence-based flow';
+                summary = 'Immunology assets use a chronic prevalence pool with severity and treatment-access filters.';
+                reasoning = [
+                    '**Stage 1:** Immunology/chronic inflammatory indication → **Prevalence Rate** base.',
+                    '**PI context:** Moderate–severe or systemic-therapy-eligible patients define the pool.',
+                    '**Playbook:** Include **Severity** and **Treatment Rate** for immunology assets.',
+                    '**Key driver:** **Eligibility Criteria** often gates biologic-ready patients.',
+                ];
+                bullets = [
+                    '**Prevalence Rate** — chronic inflammatory pool, not incident oncology volume.',
+                    '**Eligibility Criteria** / severity filter sets the treatable moderate–severe subpopulation.',
+                ];
             } else if (ind.includes('rheumat') || ind.includes(' ra ') || ind.includes('arthrit')) {
                 params = ['prevalence', 'diagnosisRate', 'severity', 'treatmentRate', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'immunology';
+                flow_label = 'Immunology prevalence-based flow';
                 summary = 'RA is a stable chronic prevalence pool where line-of-therapy positioning matters most.';
+                reasoning = [
+                    '**Stage 1:** Immunology/chronic inflammatory indication → prevalence-based model.',
+                    '**Clinical context:** Moderate–severe subpopulation often defines the addressable pool.',
+                    '**Playbook:** Immunology — include **Severity** when targeting a subtype.',
+                    '**Key driver:** Line-of-therapy and severity filter set peak treatable patients.',
+                ];
                 bullets = [
                     '**Prevalence Rate** — stable, chronic prevalent condition with well-established epidemiology.',
                     '**Severity** / line-of-therapy filter sets the addressable pool for this specific asset.',
                 ];
             } else {
                 params = ['prevalence', 'diagnosisRate', 'treatmentRate', 'classShare', 'peakProductShare', 'annualCostPerPatient', 'discount'];
+                flow_type = 'chronic';
+                flow_label = 'Chronic prevalence-based flow';
                 summary = 'This is a chronic, prevalence-based indication where treatment access drives peak revenue.';
+                reasoning = [
+                    '**Stage 1:** Indication fits a chronic prevalent disease pattern.',
+                    '**PI context:** Limited PI detail — using Stage 1 and standard chronic playbook.',
+                    '**Playbook:** Default chronic template — **Prevalence Rate** with diagnosis and treatment.',
+                    '**Key driver:** **Treatment Rate** is the biggest swing factor for peak revenue.',
+                ];
                 bullets = [
                     '**Prevalence Rate** — chronic condition, existing patient stock matters more than new cases.',
                     '**Treatment Rate** is the biggest swing factor — real-world access varies widely by market.',
@@ -5476,7 +5583,7 @@
             }
 
             aiRecParams = params;
-            return { summary, bullets };
+            return { summary, bullets, flow_type, flow_label, reasoning };
         }
 
         // Renders the suggested parameter list as chips inside the chat bubble
@@ -5498,15 +5605,73 @@
             return words.slice(0, maxWords).join(' ').replace(/[.,;:—-]+$/, '') + '…';
         }
 
-        // Builds the recommendation as a short lead sentence followed by a real
-        // <ul> bullet list (not "• "-prefixed plain text), so the reasoning behind
-        // each parameter choice is clearly separated and easy to scan.
-        function buildRecommendationHtml(summary, bullets) {
-            const summaryHtml = summary ? `<div class="ai-rec-summary">${capWords(summary, 26)}</div>` : '';
+        function formatRecInlineText(text, maxWords) {
+            return capWords(text || '', maxWords).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        }
+
+        function buildFlowReasoningHtml(meta) {
+            meta = meta || {};
+            const label = (meta.flow_label || '').trim();
+            const reasoning = Array.isArray(meta.reasoning) ? meta.reasoning.filter(r => r && String(r).trim()) : [];
+            if (!label && !reasoning.length) return '';
+            const items = reasoning.slice(0, 4).map(r => `<li>${formatRecInlineText(r, 32)}</li>`).join('');
+            return (
+                '<div class="ai-rec-reasoning-card">' +
+                '<div class="ai-rec-reasoning-head">' +
+                '<span class="ai-rec-reasoning-icon" aria-hidden="true">🧠</span>' +
+                '<span>Flow reasoning</span>' +
+                '</div>' +
+                (label ? `<div class="ai-rec-flow-label">${escapeHtml(label)}</div>` : '') +
+                (items ? `<ul class="ai-rec-reasoning-steps">${items}</ul>` : '') +
+                '</div>'
+            );
+        }
+
+        function normalizeReasoningList(raw) {
+            if (Array.isArray(raw)) {
+                return raw.map((r) => String(r || '').trim()).filter(Boolean);
+            }
+            if (typeof raw === 'string' && raw.trim()) {
+                return [raw.trim()];
+            }
+            return [];
+        }
+
+        function extractRecommendationMeta(data) {
+            data = data || {};
+            return {
+                flow_type: String(data.flow_type || '').trim(),
+                flow_label: String(data.flow_label || '').trim(),
+                reasoning: normalizeReasoningList(data.reasoning),
+            };
+        }
+
+        function mergeRecommendationFromApi(data, indication) {
+            const params = Array.isArray(data.params) && data.params.length > 0 ? data.params : [];
+            let summary = data.summary || '';
+            let bullets = Array.isArray(data.bullets) ? data.bullets : [];
+            let meta = extractRecommendationMeta(data);
+            if (params.length > 0) { aiRecParams = params; tagAISuggestedParams(); }
+            const needsFlowReasoning = !meta.flow_label || !meta.reasoning.length;
+            if (!bullets.length || needsFlowReasoning) {
+                const fallback = buildFallbackRec(indication);
+                if (!summary) summary = fallback.summary;
+                if (!bullets.length) bullets = fallback.bullets;
+                if (!meta.flow_label) meta.flow_label = fallback.flow_label;
+                if (!meta.flow_type) meta.flow_type = fallback.flow_type;
+                if (!meta.reasoning.length) meta.reasoning = fallback.reasoning;
+            }
+            return { summary, bullets, meta };
+        }
+
+        // Builds flow reasoning, a short lead sentence, then parameter bullets.
+        function buildRecommendationHtml(summary, bullets, meta) {
+            const reasoningHtml = buildFlowReasoningHtml(meta);
+            const summaryHtml = summary ? `<div class="ai-rec-summary">${formatRecInlineText(summary, 28)}</div>` : '';
             const items = (bullets || []).filter(b => b && b.trim()).slice(0, 3)
-                .map(b => `<li>${capWords(b, 22)}</li>`).join('');
+                .map(b => `<li>${formatRecInlineText(b, 24)}</li>`).join('');
             const bulletsHtml = items ? `<ul class="ai-rec-bullets">${items}</ul>` : '';
-            return summaryHtml + bulletsHtml;
+            return reasoningHtml + summaryHtml + bulletsHtml;
         }
 
         let _aiRecCopilotProgress = null;
@@ -5518,6 +5683,7 @@
             const steps = ['Reviewing product details...'];
             if (hasPiSummary) steps.push('Analysing uploaded PI summary...');
             steps.push('Reading forecast flow rules...');
+            steps.push('Explaining forecast flow rationale...');
             steps.push('Defining recommended parameters...');
             return steps;
         }
@@ -5577,11 +5743,11 @@
                     '',
                     buildCopilotStepsAllDoneHtml(steps)
                 ));
-                setTimeout(() => progress.update(msg), 400);
+                setTimeout(() => progress.updateHtml(msg, 'msg bot'), 400);
             } else if (progress) {
-                progress.update(msg);
+                progress.updateHtml(msg, 'msg bot');
             } else {
-                addMsg(msg, 'bot');
+                addHtmlMsg(msg, 'bot');
             }
         }
 
@@ -5638,26 +5804,22 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
 
-                // data = { summary, bullets: [...], params: [...] }
-                const params = Array.isArray(data.params) && data.params.length > 0 ? data.params : [];
-                let summary = data.summary || '';
-                let bullets = Array.isArray(data.bullets) ? data.bullets : [];
-                if (params.length > 0) { aiRecParams = params; tagAISuggestedParams(); }
-                if (!bullets.length) {
-                    const fallback = buildFallbackRec(indication);
-                    summary = fallback.summary;
-                    bullets = fallback.bullets;
-                }
+                // data = { flow_type, flow_label, reasoning, summary, bullets, params }
+                const rec = mergeRecommendationFromApi(data, indication);
+                let summary = rec.summary;
+                let bullets = rec.bullets;
+                const meta = rec.meta;
                 aiRecBulletsPlain = bullets.map(b => (b || '').replace(/\*\*/g, ''));
 
-                let msg = buildRecommendationHtml(summary, bullets);
+                let msg = buildRecommendationHtml(summary, bullets, meta);
                 if (aiRecParams && aiRecParams.length) {
                     msg += buildParamChipsHtml(aiRecParams);
                 }
 
                 finishAiRecCopilotProgress(msg);
                 setQuickReplies(['Apply Recommendation', 'Generate Now']);
-                const plainMsg = (summary + '\n' + bullets.join('\n')).replace(/\*\*/g, '');
+                const reasoningPlain = (meta.reasoning || []).join('\n');
+                const plainMsg = ([meta.flow_label, reasoningPlain, summary].filter(Boolean).join('\n') + '\n' + bullets.join('\n')).replace(/\*\*/g, '');
                 conversationHistory.push({ role: 'assistant', content: plainMsg });
 
             } catch (err) {
@@ -5665,11 +5827,14 @@
                 endAiRecCopilotProgress();
                 const fallback = buildFallbackRec(indication);
                 aiRecBulletsPlain = fallback.bullets.map(b => (b || '').replace(/\*\*/g, ''));
-                let msg = buildRecommendationHtml(fallback.summary, fallback.bullets);
+                let msg = buildRecommendationHtml(fallback.summary, fallback.bullets, fallback);
                 if (aiRecParams && aiRecParams.length) {
                     msg += buildParamChipsHtml(aiRecParams);
                 }
-                botSay(msg, ['Apply Recommendation', 'Generate Now']);
+                showTyping(() => {
+                    addHtmlMsg(msg, 'bot');
+                    setQuickReplies(['Apply Recommendation', 'Generate Now']);
+                });
             } finally {
                 aiRecLoading = false;
                 setAIStatus('AI Ready', undefined);
