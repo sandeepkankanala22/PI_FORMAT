@@ -1021,7 +1021,7 @@ export default function Home() {
       {/* CDN Scripts */}
       <Script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js" strategy="afterInteractive" />
       <Script src="https://cdn.jsdelivr.net/npm/hyperformula@2.6.0/dist/hyperformula.full.min.js" strategy="afterInteractive" />
-      <Script src="/js/forecast.js?v=34" strategy="afterInteractive" />
+      <Script src="/js/forecast.js?v=35" strategy="afterInteractive" />
     </>
   )
 }

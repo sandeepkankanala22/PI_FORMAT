@@ -1823,6 +1823,7 @@
                     else e.target.parentNode.insertBefore(draggedElement, e.target);
                 }
             }
+            if (draggedElement) syncSelectedParametersFromDom();
             updateFlowPreview(); return false;
         }
         function handleDragEnd(e) { if (draggedElement) { draggedElement.style.opacity = '1'; draggedElement = null; } }
@@ -1997,6 +1998,115 @@
             { id: 'pricing-list', name: 'Pricing & Access' },
         ];
 
+        function getParamGroupListId(paramId) {
+            const el = document.querySelector(
+                `#parameterSelectionSection .parameter-item[data-param="${paramId}"],`
+                + ` #parameterSelectionSection .choice-segment[data-param="${paramId}"]`
+            );
+            if (!el) return null;
+            const list = el.closest('.parameter-list');
+            return list ? list.id : null;
+        }
+
+        function buildFullParamOrder(paramIds, epiType) {
+            const order = [];
+            const add = (id) => { if (id && !order.includes(id)) order.push(id); };
+            add('population');
+            (paramIds || []).forEach((p) => {
+                if (p === 'population') return;
+                if (p === 'prevalence' || p === 'incidence') {
+                    add(epiType || 'prevalence');
+                    return;
+                }
+                add(p);
+            });
+            const activeEpi = epiType || 'prevalence';
+            if ((paramIds || []).some(p => p === 'prevalence' || p === 'incidence') && !order.includes(activeEpi)) {
+                const popIdx = order.indexOf('population');
+                order.splice(popIdx >= 0 ? popIdx + 1 : 0, 0, activeEpi);
+            }
+            return order;
+        }
+
+        function reorderDomParameterLists(orderedParamIds) {
+            const orderIndex = new Map((orderedParamIds || []).map((id, i) => [id, i]));
+            FLOW_VIEW_GROUPS.forEach((g) => {
+                const list = document.getElementById(g.id);
+                if (!list) return;
+                const children = [...list.children];
+                children.sort((a, b) => {
+                    const rank = (el) => {
+                        if (el.classList.contains('choice-group')) {
+                            const prevIdx = orderIndex.get('prevalence');
+                            const incIdx = orderIndex.get('incidence');
+                            if (prevIdx !== undefined) return prevIdx;
+                            if (incIdx !== undefined) return incIdx;
+                            return 1;
+                        }
+                        const id = el.dataset?.param || '';
+                        return orderIndex.has(id) ? orderIndex.get(id) : 9999;
+                    };
+                    return rank(a) - rank(b);
+                });
+                children.forEach((el) => list.appendChild(el));
+            });
+        }
+
+        function syncSelectedParametersFromDom() {
+            const order = [];
+            const epiRadio = document.querySelector('input[name="epi-type"]:checked');
+            const epiType = epiRadio ? epiRadio.value : 'prevalence';
+            FLOW_VIEW_GROUPS.forEach((g) => {
+                const list = document.getElementById(g.id);
+                if (!list) return;
+                list.querySelectorAll('.parameter-item[data-param], .choice-segment[data-param]').forEach((item) => {
+                    const id = item.dataset.param;
+                    if (!id) return;
+                    if (id === 'prevalence' || id === 'incidence') {
+                        if (id === epiType && !order.includes(id)) order.push(id);
+                        return;
+                    }
+                    const cb = item.querySelector('.param-checkbox');
+                    if (cb && cb.checked && !order.includes(id)) order.push(id);
+                });
+            });
+            if (!order.includes('population')) order.unshift('population');
+            else {
+                const idx = order.indexOf('population');
+                if (idx !== 0) {
+                    order.splice(idx, 1);
+                    order.unshift('population');
+                }
+            }
+            selectedParameters.parameters = order;
+            selectedParameters.epidemiology = epiType;
+        }
+
+        function getOrderedActiveParamsForGroup(groupId) {
+            const ordered = selectedParameters.parameters || [];
+            return ordered.filter((paramId) => getParamGroupListId(paramId) === groupId);
+        }
+
+        function getFlowViewRowFromParamId(paramId) {
+            const item = document.querySelector(
+                `#parameterSelectionSection .parameter-item[data-param="${paramId}"],`
+                + ` #parameterSelectionSection .choice-segment[data-param="${paramId}"]`
+            );
+            if (!item) return null;
+            const input = item.querySelector('.param-checkbox, .param-radio');
+            if (!input || !input.checked) return null;
+            const labelEl = item.querySelector('.param-label');
+            const descEl = item.querySelector('.param-description');
+            return {
+                paramId,
+                label: labelEl ? labelEl.textContent.trim() : paramId,
+                desc: descEl ? descEl.textContent.trim() : '',
+                isRequired: !!item.querySelector('.param-badge.required'),
+                isAiSuggested: item.classList.contains('ai-suggested'),
+                isChoice: item.classList.contains('choice-segment'),
+            };
+        }
+
         function buildFlowViewRowExpandHtml(row) {
             if (row.isChoice) {
                 const other = row.paramId === 'prevalence' ? 'incidence' : 'prevalence';
@@ -2053,23 +2163,9 @@
             let globalIndex = 0;
             const parts = []; // { html, rowIndex, isRow }
             FLOW_VIEW_GROUPS.forEach(g => {
-                const list = document.getElementById(g.id);
-                if (!list) return;
-                const rows = [];
-                list.querySelectorAll('.parameter-item').forEach(item => {
-                    const input = item.querySelector('.param-checkbox, .param-radio');
-                    if (!input || !input.checked) return;
-                    const labelEl = item.querySelector('.param-label');
-                    const descEl = item.querySelector('.param-description');
-                    rows.push({
-                        paramId: item.dataset.param || '',
-                        label: labelEl ? labelEl.textContent.trim() : (item.dataset.param || ''),
-                        desc: descEl ? descEl.textContent.trim() : '',
-                        isRequired: !!item.querySelector('.param-badge.required'),
-                        isAiSuggested: item.classList.contains('ai-suggested'),
-                        isChoice: item.classList.contains('choice-segment'),
-                    });
-                });
+                const rows = getOrderedActiveParamsForGroup(g.id)
+                    .map((paramId) => getFlowViewRowFromParamId(paramId))
+                    .filter(Boolean);
                 if (!rows.length) return;
 
                 // Connectors touching a category capsule are a plain line (no
@@ -5430,6 +5526,10 @@
             document.querySelectorAll('input[name="epi-type"]').forEach(r => {
                 r.checked = (r.value === (useIncidence ? 'incidence' : 'prevalence'));
             });
+            const epiType = useIncidence ? 'incidence' : 'prevalence';
+            selectedParameters.parameters = buildFullParamOrder(preset.params, epiType)
+                .filter(p => preset.params.includes(p) || p === 'population');
+            reorderDomParameterLists(selectedParameters.parameters);
             _suppressViewRender = true;
             updateFlowPreview();
             _suppressViewRender = false;
@@ -5922,6 +6022,10 @@
                 document.querySelectorAll('input[name="epi-type"]').forEach(r => {
                     r.checked = (r.value === (useIncidence ? 'incidence' : 'prevalence'));
                 });
+                const epiType = useIncidence ? 'incidence' : 'prevalence';
+                selectedParameters.parameters = buildFullParamOrder(aiRecParams, epiType)
+                    .filter(p => p === 'population' || p === epiType || aiRecParams.includes(p));
+                reorderDomParameterLists(selectedParameters.parameters);
                 _suppressViewRender = true;
                 updateFlowPreview();
                 _suppressViewRender = false;
