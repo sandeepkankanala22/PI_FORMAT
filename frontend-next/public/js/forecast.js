@@ -642,7 +642,6 @@
             return (
                 '<div class="pi-copilot-process-card">' +
                 '<div class="pi-copilot-process-head">' +
-                '<span class="pi-copilot-brain" aria-hidden="true">🧠</span>' +
                 '<span class="pi-copilot-process-title">' + escapeHtml(title) + '</span>' +
                 '</div>' +
                 (extraHtml || '') +
@@ -5634,7 +5633,6 @@
             return (
                 '<div class="ai-rec-reasoning-card">' +
                 '<div class="ai-rec-reasoning-head">' +
-                '<span class="ai-rec-reasoning-icon" aria-hidden="true">🧠</span>' +
                 '<span>Flow reasoning</span>' +
                 '</div>' +
                 (label ? `<div class="ai-rec-flow-label">${escapeHtml(label)}</div>` : '') +

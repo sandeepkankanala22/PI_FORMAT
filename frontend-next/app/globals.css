@@ -576,7 +576,6 @@ body {
     letter-spacing: .03em;
     margin-bottom: 6px;
 }
-.ai-rec-reasoning-icon { font-size: 13px; line-height: 1; }
 .ai-rec-flow-label {
     font-size: 13px;
     font-weight: 600;
@@ -2063,16 +2062,6 @@ canvas { max-width: 100%; height: auto !important; }
     font-weight: 600;
     color: var(--text);
     line-height: 1.35;
-}
-.pi-copilot-brain {
-    display: inline-block;
-    font-size: 15px;
-    line-height: 1;
-    animation: pi-brain-pulse 1.6s ease-in-out infinite;
-}
-@keyframes pi-brain-pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.72; transform: scale(1.06); }
 }
 .pi-copilot-process-file {
     font-size: 12px;
