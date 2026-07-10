@@ -5,8 +5,7 @@ node_modules/
 
 # Next.js
 .next/
-# NOTE: out/ is NOT gitignored — the built output is committed for AppRunner managed runtime
-# out/
+out/
 
 # Environment
 .env*.local

@@ -56,4 +56,22 @@ data/logs/
 data/runs/
 excel_viewer/
 
+# ── Local runtime / test artifacts ─────────────────────────────────────────
+data/user_input.json
+data/*.b64
+data/test_output.pptx
+.runs/
+.claude/
+
+# ── Frontend build output (regenerated via npm run build / Docker / App Runner)
+frontend-next/out/
+
+# ── Root-level sample outputs & scratch scripts ────────────────────────────
+forecast_model_*.xlsx
+Chryselys_Forecasting_Accelerator_Sales_Playbook.docx
+test.py
+test_streamlit.py
+tests/test_statin_indication.py
+agents/excel_agent/prompts/backups/
+
 
